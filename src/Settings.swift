@@ -222,6 +222,9 @@ final class PreviewCard: NSView {
   /// Pull the current settings and repaint.
   func apply() {
     palette = Palette(icon: nil)
+    // Draw under the chosen theme's appearance, not the window's: the text colours are dynamic, and the
+    // real card gets the same treatment. Otherwise a light card in a dark window paints white on white.
+    appearance = NSAppearance(named: palette.isDark ? .darkAqua : .aqua)
     scale = Settings.shared.size.scale
     anchor = Settings.shared.anchor
     let url = NSWorkspace.shared.desktopImageURL(for: Settings.shared.screen)

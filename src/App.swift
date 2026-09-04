@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import ServiceManagement
+import UserNotifications
 
 @main
 struct Main {
@@ -50,13 +51,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     sendFiveTests: { [weak self] in self?.sendFiveTests() },
     sendPinnedTest: { [weak self] in self?.sendPinnedTest() },
     dismissAll: { [weak self] in self?.dismissAll() },
-    openLog: { [weak self] in self?.openLog() }))
+    openLog: { [weak self] in self?.openLog() },
+    quit: { [weak self] in self?.quit() }))
   private var trustTimer: Timer?
   private var termSources: [DispatchSourceSignal] = []
 
   func applicationDidFinishLaunching(_: Notification) {
     logI("launch \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") ?? "")")
     setupStatusItem()
+    installMainMenu()
+    Settings.shared.onMenuBarChange = { [weak self] in self?.applyMenuBarVisibility() }
     Settings.shared.onChange = { [weak self] in self?.cards.layout() }
     Settings.shared.onSizeChange = { [weak self] in self?.cards.dismissAll() }
     NotificationCenter.default.addObserver(self, selector: #selector(screensChanged),
@@ -148,6 +152,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     seen[notice.key] = now
     logI("show via \(route): \(notice.app) / \(notice.title)")
+    let sound = Settings.shared.sound
+    if !sound.isEmpty { NSSound(named: sound)?.play() }
     cards.add(notice)
   }
 
@@ -162,41 +168,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     menu.addItem(withTitle: "닫기", action: #selector(quit), keyEquivalent: "q")
     for m in menu.items { m.target = self }
     item.menu = menu
+    item.isVisible = !Settings.shared.menuBarHidden
     statusItem = item
   }
 
-  @objc private func sendTest() {
-    post(title: "테스트 알림", body: "알림이 화면 가운데에 표시됩니다.")
+  /// A Pounce-branded test notice, built right here so it carries the app's own icon and name,
+  /// exactly like the pinned test. Nothing goes through macOS, so no permission is needed.
+  private func testNotice(_ title: String, _ body: String, alert: Bool) -> Notice {
+    Notice(app: "Pounce", title: title, subtitle: "", body: body,
+           isAlert: alert, element: nil, uuid: UUID().uuidString,
+           icon: NSApp.applicationIconImage, actions: [])
   }
 
-  /// Five in a row, 1.2 s apart: fast enough to stack, slow enough that macOS draws every banner.
+  @objc private func sendTest() {
+    sendNotification("테스트 알림", "알림이 화면 가운데에 표시됩니다.")
+  }
+
+  /// Five in a row, 1.2 s apart: they share the app, so they stack into one card.
   @objc private func sendFiveTests() {
     for i in 1...5 {
       DispatchQueue.main.asyncAfter(deadline: .now() + Double(i - 1) * 1.2) { [weak self] in
-        self?.post(title: "테스트 알림 \(i)/5", body: "연속으로 온 알림은 카드 하나에 묶입니다.")
+        self?.sendNotification("테스트 알림 \(i)/5", "연속으로 온 알림은 카드 하나에 묶입니다.")
       }
     }
   }
 
-  /// A card that stays until closed, the way a persistent alert does. Made right here, not sent
-  /// through macOS, so it needs no notification permission and nothing else opens.
-  @objc private func sendPinnedTest() {
-    let notice = Notice(app: "CentreGrowl", title: "고정 알림", subtitle: "", body: "닫을 때까지 남습니다.",
-                        isAlert: true, element: nil, uuid: UUID().uuidString,
-                        icon: NSApp.applicationIconImage, actions: [])
-    present(notice, via: "test")
+  /// The real way: the app posts a notification under its own name, so the banner is Pounce's and
+  /// our watcher intercepts it into a card with the app's icon. If notifications are off, we build the
+  /// card directly so the test still works.
+  private func sendNotification(_ title: String, _ body: String) {
+    let center = UNUserNotificationCenter.current()
+    center.delegate = self
+    center.getNotificationSettings { settings in
+      let post = {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = nil   // the card plays the chosen sound when it appears; no double
+        let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        center.add(req) { error in if let error { logE("post notification: \(error)") } }
+      }
+      switch settings.authorizationStatus {
+      case .authorized, .provisional:
+        DispatchQueue.main.async(execute: post)
+      case .notDetermined:
+        center.requestAuthorization(options: [.alert]) { granted, _ in
+          DispatchQueue.main.async {
+            if granted { post() } else { self.present(self.testNotice(title, body, alert: false), via: "test") }
+          }
+        }
+      default:
+        // Notifications denied for this app: fall back to a directly built card.
+        DispatchQueue.main.async { self.present(self.testNotice(title, body, alert: false), via: "test") }
+      }
+    }
   }
 
-  private func post(title: String, subtitle: String = "", body: String) {
-    func q(_ s: String) -> String { s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") }
-    // "default" plays the alert sound the user chose in System Settings for this sender.
-    var script = "display notification \"\(q(body))\" with title \"\(q(title))\""
-    if !subtitle.isEmpty { script += " subtitle \"\(q(subtitle))\"" }
-    script += " sound name \"default\""
-    let task = Process()
-    task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-    task.arguments = ["-e", script]
-    try? task.run()
+  /// A card that stays until closed, the way a persistent alert does.
+  @objc private func sendPinnedTest() {
+    present(testNotice("고정 알림", "닫을 때까지 남습니다.", alert: true), via: "test")
   }
 
   @objc private func dismissAll() { cards.dismissAll() }
@@ -204,11 +234,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// The same paw as the app icon, as a template so the menu bar tints it for light, dark and accents.
   private static func menuBarPaw() -> NSImage? {
     guard let path = Bundle.main.path(forResource: "paw", ofType: "png"), let paw = NSImage(contentsOfFile: path) else {
-      return NSImage(systemSymbolName: "pawprint.fill", accessibilityDescription: "CentreGrowl")
+      return NSImage(systemSymbolName: "pawprint.fill", accessibilityDescription: "Pounce")
     }
     paw.isTemplate = true
     paw.size = NSSize(width: 18, height: 18)
-    paw.accessibilityDescription = "CentreGrowl"
+    paw.accessibilityDescription = "Pounce"
     return paw
   }
 
@@ -219,4 +249,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   @objc private func openLog() { NSWorkspace.shared.open(Log.shared.url) }
 
   @objc private func quit() { NSApp.terminate(nil) }
+
+  private func applyMenuBarVisibility() {
+    statusItem?.isVisible = !Settings.shared.menuBarHidden
+  }
+
+  /// Launching the app while it already runs (Launchpad, Spotlight, `open -a`) lands here: the way back
+  /// to Settings when the paw is hidden.
+  func applicationShouldHandleReopen(_: NSApplication, hasVisibleWindows: Bool) -> Bool {
+    settingsWindow.show()
+    return false
+  }
+
+  /// No visible menu bar of its own (LSUIElement), but ⌘Q and ⌘W still work while the settings window is up.
+  private func installMainMenu() {
+    let app = NSMenuItem()
+    app.submenu = NSMenu()
+    app.submenu?.addItem(withTitle: "Pounce 종료", action: #selector(quit), keyEquivalent: "q").target = self
+    let window = NSMenuItem()
+    window.submenu = NSMenu()
+    window.submenu?.addItem(withTitle: "닫기", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+    let main = NSMenu()
+    main.items = [app, window]
+    NSApp.mainMenu = main
+  }
+}
+
+extension AppDelegate: UNUserNotificationCenterDelegate {
+  /// Draw our own notifications as banners even though we run as an accessory, so the watcher can park them.
+  func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                              withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+    completionHandler([.banner, .list])
+  }
 }

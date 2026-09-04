@@ -1,6 +1,6 @@
 import AppKit
 
-// Renders every CentreGrowl icon from one paw drawing (paw-source.png, black paw, any background):
+// Renders every Pounce icon from one paw drawing (paw-source.png, black paw, any background):
 //   <iconset dir>   the app icon: a white paw on a baked blue-violet squircle, all macOS sizes
 //   paw-mask.png    the paw alone as a black shape with alpha, shipped in the bundle for the menu bar
 // Usage: swift make-icon.swift <iconset dir>

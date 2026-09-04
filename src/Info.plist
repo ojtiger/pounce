@@ -3,19 +3,19 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>CentreGrowl</string>
+	<string>Pounce</string>
 	<key>CFBundleExecutable</key>
-	<string>CentreGrowl</string>
+	<string>Pounce</string>
 	<key>CFBundleIconFile</key>
-	<string>CentreGrowl</string>
+	<string>Pounce</string>
 	<key>CFBundleIdentifier</key>
-	<string>dev.tungsten.centre-growl</string>
+	<string>dev.tungsten.pounce</string>
 	<key>CFBundleName</key>
-	<string>CentreGrowl</string>
+	<string>Pounce</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.2.1</string>
+	<string>0.2.9</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
@@ -25,6 +25,6 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
-	<string>centre-growl</string>
+	<string>Pounce</string>
 </dict>
 </plist>

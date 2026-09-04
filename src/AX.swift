@@ -6,8 +6,8 @@ import ApplicationServices
 final class Log {
   static let shared = Log()
   let url = FileManager.default.homeDirectoryForCurrentUser
-    .appendingPathComponent("Library/Logs/centre-growl.log")
-  private let queue = DispatchQueue(label: "centre-growl.log")
+    .appendingPathComponent("Library/Logs/pounce.log")
+  private let queue = DispatchQueue(label: "pounce.log")
   private let formatter: ISO8601DateFormatter = {
     let f = ISO8601DateFormatter()
     f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

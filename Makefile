@@ -1,4 +1,4 @@
-APP      := CentreGrowl
+APP      := Pounce
 BUNDLE   := $(APP).app
 # Apple Development identity when the Mac has one (keeps TCC permissions stable across builds),
 # otherwise ad-hoc so `make install` works on any Mac with Xcode.
@@ -12,8 +12,9 @@ all: build
 build:
 	@mkdir -p $(BUNDLE)/Contents/MacOS $(BUNDLE)/Contents/Resources
 	@cp src/Info.plist $(BUNDLE)/Contents/
-	@cp src/assets/CentreGrowl.icns $(BUNDLE)/Contents/Resources/
+	@cp src/assets/Pounce.icns $(BUNDLE)/Contents/Resources/
 	@cp src/assets/paw-mask.png $(BUNDLE)/Contents/Resources/paw.png
+	@cp src/assets/tungsten.jpg $(BUNDLE)/Contents/Resources/
 	swiftc $(SRC) -o $(BUNDLE)/Contents/MacOS/$(APP) -O -parse-as-library -target arm64-apple-macos14.0
 	codesign -fs "$(IDENTITY)" $(BUNDLE)
 
@@ -32,27 +33,28 @@ clean:
 
 # Regenerates the app icon and the menu bar paw from src/assets/paw-source.png.
 icon:
-	swift src/assets/make-icon.swift $(DIST)/CentreGrowl.iconset
-	iconutil -c icns $(DIST)/CentreGrowl.iconset -o src/assets/CentreGrowl.icns
-	@rm -rf $(DIST)/CentreGrowl.iconset
+	swift src/assets/make-icon.swift $(DIST)/Pounce.iconset
+	iconutil -c icns $(DIST)/Pounce.iconset -o src/assets/Pounce.icns
+	@rm -rf $(DIST)/Pounce.iconset
 
 # ---- Distribution -------------------------------------------------------------
 # Needs a Developer ID Application certificate (paid Apple Developer Program) and,
 # for notarization, a notarytool keychain profile:
-#   xcrun notarytool store-credentials centre-growl --apple-id <id> --team-id <team> --password <app-specific>
+#   xcrun notarytool store-credentials pounce --apple-id <id> --team-id <team> --password <app-specific>
 VERSION        := $(shell /usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' src/Info.plist)
 DIST_IDENTITY  ?= Developer ID Application
-NOTARY_PROFILE ?= centre-growl
+NOTARY_PROFILE ?= pounce
 DIST           := dist
-ZIP            := $(DIST)/CentreGrowl-$(VERSION).zip
-DMG            := $(DIST)/CentreGrowl-$(VERSION).dmg
+ZIP            := $(DIST)/Pounce-$(VERSION).zip
+DMG            := $(DIST)/Pounce-$(VERSION).dmg
 
 # Universal (Apple silicon + Intel) build, hardened runtime, Developer ID signature, zip.
 dist:
 	@rm -rf $(BUNDLE) $(DIST) && mkdir -p $(BUNDLE)/Contents/MacOS $(BUNDLE)/Contents/Resources $(DIST)
 	@cp src/Info.plist $(BUNDLE)/Contents/
-	@cp src/assets/CentreGrowl.icns $(BUNDLE)/Contents/Resources/
+	@cp src/assets/Pounce.icns $(BUNDLE)/Contents/Resources/
 	@cp src/assets/paw-mask.png $(BUNDLE)/Contents/Resources/paw.png
+	@cp src/assets/tungsten.jpg $(BUNDLE)/Contents/Resources/
 	swiftc $(SRC) -o $(DIST)/$(APP)-arm64  -O -parse-as-library -target arm64-apple-macos14.0
 	swiftc $(SRC) -o $(DIST)/$(APP)-x86_64 -O -parse-as-library -target x86_64-apple-macos14.0
 	lipo -create -output $(BUNDLE)/Contents/MacOS/$(APP) $(DIST)/$(APP)-arm64 $(DIST)/$(APP)-x86_64
@@ -67,8 +69,9 @@ dist:
 package:
 	@rm -rf $(BUNDLE) $(DIST) && mkdir -p $(BUNDLE)/Contents/MacOS $(BUNDLE)/Contents/Resources $(DIST)
 	@cp src/Info.plist $(BUNDLE)/Contents/
-	@cp src/assets/CentreGrowl.icns $(BUNDLE)/Contents/Resources/
+	@cp src/assets/Pounce.icns $(BUNDLE)/Contents/Resources/
 	@cp src/assets/paw-mask.png $(BUNDLE)/Contents/Resources/paw.png
+	@cp src/assets/tungsten.jpg $(BUNDLE)/Contents/Resources/
 	swiftc $(SRC) -o $(DIST)/$(APP)-arm64  -O -parse-as-library -target arm64-apple-macos14.0
 	swiftc $(SRC) -o $(DIST)/$(APP)-x86_64 -O -parse-as-library -target x86_64-apple-macos14.0
 	lipo -create -output $(BUNDLE)/Contents/MacOS/$(APP) $(DIST)/$(APP)-arm64 $(DIST)/$(APP)-x86_64
@@ -76,6 +79,7 @@ package:
 	codesign -fs "$(IDENTITY)" $(BUNDLE)
 	ditto -c -k --keepParent $(BUNDLE) $(ZIP)
 	@echo "packaged $(ZIP)"
+	@shasum -a 256 $(ZIP)
 
 # Submit to Apple, staple the ticket, re-zip, and also produce a DMG.
 notarize: dist
@@ -83,7 +87,7 @@ notarize: dist
 	xcrun stapler staple $(BUNDLE)
 	ditto -c -k --keepParent $(BUNDLE) $(ZIP)
 	@rm -rf $(DIST)/dmg && mkdir -p $(DIST)/dmg && cp -R $(BUNDLE) $(DIST)/dmg/ && ln -s /Applications $(DIST)/dmg/Applications
-	hdiutil create -volname "CentreGrowl" -srcfolder $(DIST)/dmg -ov -format UDZO $(DMG)
+	hdiutil create -volname "Pounce" -srcfolder $(DIST)/dmg -ov -format UDZO $(DMG)
 	@rm -rf $(DIST)/dmg
 	spctl -a -vv $(BUNDLE)
 	@shasum -a 256 $(ZIP) $(DMG)

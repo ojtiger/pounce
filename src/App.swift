@@ -1,7 +1,6 @@
 import AppKit
 import ApplicationServices
 import ServiceManagement
-import UserNotifications
 
 @main
 struct Main {
@@ -46,12 +45,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       }
     }))
   private var statusItem: NSStatusItem?
+  private lazy var settingsWindow = SettingsWindow(actions: SettingsActions(
+    sendTest: { [weak self] in self?.sendTest() },
+    sendFiveTests: { [weak self] in self?.sendFiveTests() },
+    sendPinnedTest: { [weak self] in self?.sendPinnedTest() },
+    dismissAll: { [weak self] in self?.dismissAll() },
+    openLog: { [weak self] in self?.openLog() }))
   private var trustTimer: Timer?
   private var termSources: [DispatchSourceSignal] = []
 
   func applicationDidFinishLaunching(_: Notification) {
     logI("launch \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") ?? "")")
     setupStatusItem()
+    Settings.shared.onChange = { [weak self] in self?.cards.layout() }
+    Settings.shared.onSizeChange = { [weak self] in self?.cards.dismissAll() }
+    NotificationCenter.default.addObserver(self, selector: #selector(screensChanged),
+                                           name: NSApplication.didChangeScreenParametersNotification, object: nil)
     watcher.onNotice = { [weak self] notice in self?.present(notice, via: "ax") }
     watcher.onGone = { [weak self] key in self?.cards.remove(key: key) }
     watcher.onLostTrust = { [weak self] in self?.ensureTrustedThenStart() }
@@ -147,72 +156,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func setupStatusItem() {
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-    item.button?.image = NSImage(systemSymbolName: "bell.and.waves.left.and.right", accessibilityDescription: "CentreGrowl")
+    item.button?.image = Self.menuBarPaw()
     let menu = NSMenu()
-    menu.addItem(withTitle: "테스트 알림 보내기", action: #selector(sendTest), keyEquivalent: "t")
-    menu.addItem(withTitle: "테스트 알림 5개 보내기", action: #selector(sendFiveTests), keyEquivalent: "5")
-    menu.addItem(withTitle: "떠 있는 알림 테스트 (CentreGrowl 자체 알림)", action: #selector(sendAlertTest), keyEquivalent: "a")
-    menu.addItem(withTitle: "모든 카드 닫기", action: #selector(dismissAll), keyEquivalent: "")
-    menu.addItem(.separator())
-    let login = NSMenuItem(title: "로그인 시 실행", action: #selector(toggleLogin), keyEquivalent: "")
-    login.state = SMAppService.mainApp.status == .enabled ? .on : .off
-    menu.addItem(login)
-    let debug = NSMenuItem(title: "디버그 로그", action: #selector(toggleDebug), keyEquivalent: "")
-    debug.state = Log.shared.debugEnabled ? .on : .off
-    menu.addItem(debug)
-    menu.addItem(withTitle: "로그 열기", action: #selector(openLog), keyEquivalent: "")
-    menu.addItem(.separator())
-    menu.addItem(withTitle: "종료", action: #selector(quit), keyEquivalent: "q")
+    menu.addItem(withTitle: "설정…", action: #selector(openSettings), keyEquivalent: ",")
+    menu.addItem(withTitle: "닫기", action: #selector(quit), keyEquivalent: "q")
     for m in menu.items { m.target = self }
     item.menu = menu
     statusItem = item
   }
 
   @objc private func sendTest() {
-    post(title: "CentreGrowl", subtitle: "테스트", body: "정중앙에서 팍")
+    post(title: "테스트 알림", body: "알림이 화면 가운데에 표시됩니다.")
   }
 
   /// Five in a row, 1.2 s apart: fast enough to stack, slow enough that macOS draws every banner.
   @objc private func sendFiveTests() {
     for i in 1...5 {
       DispatchQueue.main.asyncAfter(deadline: .now() + Double(i - 1) * 1.2) { [weak self] in
-        self?.post(title: "테스트 알림 \(i)", subtitle: "5개 연속", body: "\(i) 번째 본문입니다")
+        self?.post(title: "테스트 알림 \(i)/5", body: "연속으로 온 알림은 카드 하나에 묶입니다.")
       }
     }
   }
 
-  /// Posts a notification from CentreGrowl itself. Whether it is a fleeting banner or a lingering
-  /// alert is the user's choice in System Settings > Notifications > CentreGrowl, exactly as for any app.
-  @objc private func sendAlertTest() {
-    let center = UNUserNotificationCenter.current()
-    center.delegate = self
-    center.requestAuthorization(options: [.alert, .sound]) { granted, error in
-      if let error { logE("notification auth: \(error)") }
-      guard granted else {
-        logI("notification auth denied")
-        DispatchQueue.main.async { self.openNotificationSettings() }
-        return
-      }
-      let content = UNMutableNotificationContent()
-      content.title = "떠 있는 알림 테스트"
-      content.subtitle = "CentreGrowl"
-      content.body = "시스템 설정 > 알림 > CentreGrowl 의 스타일이 \"알림\" 이면 닫을 때까지 남고, \"배너\" 면 잠시 뒤 사라집니다."
-      content.sound = .default
-      let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-      center.add(req) { error in
-        if let error { logE("notification add: \(error)") } else { logI("own test notification posted") }
-      }
-    }
+  /// A card that stays until closed, the way a persistent alert does. Made right here, not sent
+  /// through macOS, so it needs no notification permission and nothing else opens.
+  @objc private func sendPinnedTest() {
+    let notice = Notice(app: "CentreGrowl", title: "고정 알림", subtitle: "", body: "닫을 때까지 남습니다.",
+                        isAlert: true, element: nil, uuid: UUID().uuidString,
+                        icon: NSApp.applicationIconImage, actions: [])
+    present(notice, via: "test")
   }
 
-  @objc private func openNotificationSettings() {
-    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!)
-  }
-
-  private func post(title: String, subtitle: String, body: String) {
+  private func post(title: String, subtitle: String = "", body: String) {
     func q(_ s: String) -> String { s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") }
     // "default" plays the alert sound the user chose in System Settings for this sender.
-    let script = "display notification \"\(q(body))\" with title \"\(q(title))\" subtitle \"\(q(subtitle))\" sound name \"default\""
+    var script = "display notification \"\(q(body))\" with title \"\(q(title))\""
+    if !subtitle.isEmpty { script += " subtitle \"\(q(subtitle))\"" }
+    script += " sound name \"default\""
     let task = Process()
     task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
     task.arguments = ["-e", script]
@@ -221,35 +201,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   @objc private func dismissAll() { cards.dismissAll() }
 
-  @objc private func toggleLogin(_ sender: NSMenuItem) {
-    do {
-      if SMAppService.mainApp.status == .enabled {
-        try SMAppService.mainApp.unregister()
-        sender.state = .off
-      } else {
-        try SMAppService.mainApp.register()
-        sender.state = .on
-      }
-    } catch {
-      logE("login item: \(error)")
+  /// The same paw as the app icon, as a template so the menu bar tints it for light, dark and accents.
+  private static func menuBarPaw() -> NSImage? {
+    guard let path = Bundle.main.path(forResource: "paw", ofType: "png"), let paw = NSImage(contentsOfFile: path) else {
+      return NSImage(systemSymbolName: "pawprint.fill", accessibilityDescription: "CentreGrowl")
     }
+    paw.isTemplate = true
+    paw.size = NSSize(width: 18, height: 18)
+    paw.accessibilityDescription = "CentreGrowl"
+    return paw
   }
 
-  @objc private func toggleDebug(_ sender: NSMenuItem) {
-    let next = !Log.shared.debugEnabled
-    UserDefaults.standard.set(next, forKey: "debugLoggingEnabled")
-    sender.state = next ? .on : .off
-  }
+  @objc private func openSettings() { settingsWindow.show() }
+
+  @objc private func screensChanged() { cards.layout() }
 
   @objc private func openLog() { NSWorkspace.shared.open(Log.shared.url) }
 
   @objc private func quit() { NSApp.terminate(nil) }
-}
-
-extension AppDelegate: UNUserNotificationCenterDelegate {
-  /// Our own notifications must show even though we are the posting app.
-  func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
-                              withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-    completionHandler([.banner, .list, .sound])
-  }
 }

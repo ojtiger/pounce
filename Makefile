@@ -2,7 +2,9 @@ APP      := CentreGrowl
 BUNDLE   := $(APP).app
 # Apple Development identity when the Mac has one (keeps TCC permissions stable across builds),
 # otherwise ad-hoc so `make install` works on any Mac with Xcode.
-IDENTITY := $(shell security find-identity -v -p codesigning 2>/dev/null | grep -q "Apple Development" && echo "Apple Development" || echo "-")
+# Picked by SHA-1 hash, not by name: a Mac with two "Apple Development" certs makes the name ambiguous.
+# Override with `make install IDENTITY=<hash>` to pin a specific one.
+IDENTITY ?= $(or $(shell security find-identity -v -p codesigning 2>/dev/null | awk '/Apple Development/ {print $$2; exit}'),-)
 SRC      := $(wildcard src/*.swift)
 
 all: build
@@ -11,13 +13,15 @@ build:
 	@mkdir -p $(BUNDLE)/Contents/MacOS $(BUNDLE)/Contents/Resources
 	@cp src/Info.plist $(BUNDLE)/Contents/
 	@cp src/assets/CentreGrowl.icns $(BUNDLE)/Contents/Resources/
+	@cp src/assets/paw-mask.png $(BUNDLE)/Contents/Resources/paw.png
 	swiftc $(SRC) -o $(BUNDLE)/Contents/MacOS/$(APP) -O -parse-as-library -target arm64-apple-macos14.0
 	codesign -fs "$(IDENTITY)" $(BUNDLE)
 
+# Synced in place rather than deleted and copied: the bundle keeps its identity, so the notification
+# and accessibility permissions the user granted stay attached to it.
 install: build
 	@pkill -x $(APP) || true
-	@rm -rf /Applications/$(BUNDLE)
-	@cp -R $(BUNDLE) /Applications/
+	@rsync -a --delete $(BUNDLE)/ /Applications/$(BUNDLE)/
 	@echo "installed /Applications/$(BUNDLE)"
 
 run: install
@@ -25,6 +29,12 @@ run: install
 
 clean:
 	@rm -rf $(BUNDLE)
+
+# Regenerates the app icon and the menu bar paw from src/assets/paw-source.png.
+icon:
+	swift src/assets/make-icon.swift $(DIST)/CentreGrowl.iconset
+	iconutil -c icns $(DIST)/CentreGrowl.iconset -o src/assets/CentreGrowl.icns
+	@rm -rf $(DIST)/CentreGrowl.iconset
 
 # ---- Distribution -------------------------------------------------------------
 # Needs a Developer ID Application certificate (paid Apple Developer Program) and,
@@ -42,6 +52,7 @@ dist:
 	@rm -rf $(BUNDLE) $(DIST) && mkdir -p $(BUNDLE)/Contents/MacOS $(BUNDLE)/Contents/Resources $(DIST)
 	@cp src/Info.plist $(BUNDLE)/Contents/
 	@cp src/assets/CentreGrowl.icns $(BUNDLE)/Contents/Resources/
+	@cp src/assets/paw-mask.png $(BUNDLE)/Contents/Resources/paw.png
 	swiftc $(SRC) -o $(DIST)/$(APP)-arm64  -O -parse-as-library -target arm64-apple-macos14.0
 	swiftc $(SRC) -o $(DIST)/$(APP)-x86_64 -O -parse-as-library -target x86_64-apple-macos14.0
 	lipo -create -output $(BUNDLE)/Contents/MacOS/$(APP) $(DIST)/$(APP)-arm64 $(DIST)/$(APP)-x86_64
@@ -50,6 +61,21 @@ dist:
 	codesign --verify --deep --strict $(BUNDLE)
 	ditto -c -k --keepParent $(BUNDLE) $(ZIP)
 	@echo "built $(ZIP)"
+
+# Hand-off without notarization: universal build, signed with whatever identity this Mac has, zipped.
+# The receiver's Gatekeeper objects once; System Settings > Privacy & Security > "Open Anyway" clears it.
+package:
+	@rm -rf $(BUNDLE) $(DIST) && mkdir -p $(BUNDLE)/Contents/MacOS $(BUNDLE)/Contents/Resources $(DIST)
+	@cp src/Info.plist $(BUNDLE)/Contents/
+	@cp src/assets/CentreGrowl.icns $(BUNDLE)/Contents/Resources/
+	@cp src/assets/paw-mask.png $(BUNDLE)/Contents/Resources/paw.png
+	swiftc $(SRC) -o $(DIST)/$(APP)-arm64  -O -parse-as-library -target arm64-apple-macos14.0
+	swiftc $(SRC) -o $(DIST)/$(APP)-x86_64 -O -parse-as-library -target x86_64-apple-macos14.0
+	lipo -create -output $(BUNDLE)/Contents/MacOS/$(APP) $(DIST)/$(APP)-arm64 $(DIST)/$(APP)-x86_64
+	@rm $(DIST)/$(APP)-arm64 $(DIST)/$(APP)-x86_64
+	codesign -fs "$(IDENTITY)" $(BUNDLE)
+	ditto -c -k --keepParent $(BUNDLE) $(ZIP)
+	@echo "packaged $(ZIP)"
 
 # Submit to Apple, staple the ticket, re-zip, and also produce a DMG.
 notarize: dist
@@ -62,4 +88,4 @@ notarize: dist
 	spctl -a -vv $(BUNDLE)
 	@shasum -a 256 $(ZIP) $(DMG)
 
-.PHONY: all build install run clean dist notarize
+.PHONY: all build install run clean icon package dist notarize

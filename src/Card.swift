@@ -2,14 +2,19 @@ import AppKit
 import QuartzCore
 
 enum Style {
-  static let width: CGFloat = 480
+  /// The user's size setting: everything about the card scales with it, except the transparent margin.
+  static var scale: CGFloat { Settings.shared.size.scale }
+  static var width: CGFloat { 480 * scale }
   /// Transparent margin around the card so the pop overshoot and shadow are not clipped.
   static let margin: CGFloat = 56
-  static let padding: CGFloat = 22
-  static let iconSize: CGFloat = 56
-  static let corner: CGFloat = 28
-  static let gap: CGFloat = 14
-  static let showSeconds: TimeInterval = 8
+  static var padding: CGFloat { 22 * scale }
+  static var iconSize: CGFloat { 56 * scale }
+  static var corner: CGFloat { 28 * scale }
+  static var gap: CGFloat { 14 * scale }
+  /// Distance from the screen edge for the corner anchors.
+  static let edgeInset: CGFloat = 24
+  /// How long a banner card stays, from the settings; the ring counts it down.
+  static var showSeconds: TimeInterval { Settings.shared.duration }
   static let maxGroups = 3
   static let maxHistory = 3
 }
@@ -33,10 +38,15 @@ struct Palette {
   let wash: NSColor
   let shadowOpacity: Float
 
-  /// Follows the system appearance and the system accent colour at the moment the card is made.
+  /// Theme and accent from the settings; "system" for either follows macOS at the moment the card is made.
   init(icon: NSImage?) {
-    isDark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-    let accent = NSColor.controlAccentColor.usingColorSpace(.deviceRGB) ?? NSColor.systemBlue
+    let settings = Settings.shared
+    switch settings.theme {
+    case .light: isDark = false
+    case .dark: isDark = true
+    case .system: isDark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    }
+    let accent = (settings.accent.color ?? NSColor.controlAccentColor).usingColorSpace(.deviceRGB) ?? NSColor.systemBlue
     let h = accent.hueComponent
     tint = accent
     if isDark {
@@ -155,11 +165,14 @@ private final class Sheen: NSView {
 final class NoticeGroup {
   let app: String
   let icon: NSImage?
+  /// Relayed from the mirrored iPhone; kept so a phone card never merges with the Mac app's card.
+  let fromIPhone: Bool
   private(set) var notices: [Notice]
 
   init(_ notice: Notice) {
     app = notice.app
     icon = notice.icon
+    fromIPhone = notice.fromIPhone
     notices = [notice]
   }
 
@@ -187,7 +200,12 @@ final class CardPanel: NSPanel {
   var onAction: ((Notice, AXAction) -> Void)?
   var onClose: ((NoticeGroup) -> Void)?
   var onDismiss: (() -> Void)?
+  var onDrag: ((CardPanel) -> Void)?
+  var onDragEnd: ((CardPanel) -> Void)?
   private var presentedAt = Date.distantPast
+  private var dragStart: NSPoint?
+  private var dragOrigin = NSPoint.zero
+  private(set) var isDragging = false
   private var isHovered = false
   private var dismissWhenMouseLeaves = false
   private var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
@@ -198,10 +216,12 @@ final class CardPanel: NSPanel {
   private var sheen: Sheen!
   private var content: NSView?
   private var iconView: NSImageView?
+  private var closeButton: NSButton?
+  private var ring: CountdownRing?
   private var buttonActions: [AXAction] = []
   private let palette: Palette
   private var dismissWork: DispatchWorkItem?
-  private var isClosing = false
+  private(set) var isClosing = false
   private(set) var cardHeight: CGFloat = 0
 
   init(group: NoticeGroup) {
@@ -217,6 +237,8 @@ final class CardPanel: NSPanel {
     level = .screenSaver
     isMovableByWindowBackground = false
     hidesOnDeactivate = false
+    // The card's own theme: the glass material and label colours resolve against this, not the system's.
+    appearance = NSAppearance(named: palette.isDark ? .darkAqua : .aqua)
     collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
     isReleasedWhenClosed = false
     animationBehavior = .none
@@ -316,6 +338,7 @@ final class CardPanel: NSPanel {
   @discardableResult
   func rebuildContent() -> CGFloat {
     content?.removeFromSuperview()
+    installCorner()
     let notice = group.latest
     let textShadow = NSShadow()
     textShadow.shadowColor = NSColor.clear
@@ -323,7 +346,7 @@ final class CardPanel: NSPanel {
     textShadow.shadowOffset = NSSize(width: 0, height: -1)
 
     let icon = NSImageView()
-    icon.image = group.icon ?? NSImage(systemSymbolName: "bell.fill", accessibilityDescription: nil)
+    icon.image = group.icon ?? AppIcons.macImage
     icon.imageScaling = .scaleProportionallyUpOrDown
     icon.contentTintColor = palette.text
     icon.wantsLayer = true
@@ -336,12 +359,13 @@ final class CardPanel: NSPanel {
     icon.heightAnchor.constraint(equalToConstant: Style.iconSize).isActive = true
     iconView = icon
 
-    let textWidth = Style.width - Style.padding * 2 - Style.iconSize - 16
+    // 18 keeps the first row clear of the close button and its ring in the corner.
+    let textWidth = Style.width - Style.padding * 2 - Style.iconSize - 16 - 18
 
     let appLabel = NSTextField(labelWithString: "")
     let appText = NSMutableAttributedString(string: group.app.uppercased())
     appText.addAttributes([
-      .kern: 1.3, .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+      .kern: 1.3, .font: NSFont.systemFont(ofSize: 11 * Style.scale, weight: .semibold),
       .foregroundColor: palette.textTertiary,
     ], range: NSRange(location: 0, length: appText.length))
     appLabel.attributedStringValue = appText
@@ -351,20 +375,18 @@ final class CardPanel: NSPanel {
     header.orientation = .horizontal
     header.spacing = 7
     header.alignment = .centerY
-    if group.notices.count > 1 {
-      header.addArrangedSubview(badge("\(group.notices.count)"))
-    }
 
     let title = NSTextField(wrappingLabelWithString: notice.title)
-    title.font = .systemFont(ofSize: 20, weight: .bold)
+    title.font = .systemFont(ofSize: 20 * Style.scale, weight: .bold)
     title.textColor = palette.text
     title.shadow = textShadow
     title.maximumNumberOfLines = 2
     title.preferredMaxLayoutWidth = textWidth
     title.isSelectable = false
+    title.isHidden = notice.title.isEmpty
 
     let subtitle = NSTextField(wrappingLabelWithString: notice.subtitle)
-    subtitle.font = .systemFont(ofSize: 14.5, weight: .semibold)
+    subtitle.font = .systemFont(ofSize: 14.5 * Style.scale, weight: .semibold)
     subtitle.textColor = palette.textSecondary
     subtitle.shadow = textShadow
     subtitle.maximumNumberOfLines = 2
@@ -377,8 +399,8 @@ final class CardPanel: NSPanel {
     para.lineSpacing = 1.5
     para.lineBreakMode = .byWordWrapping
     body.attributedStringValue = NSAttributedString(string: notice.body, attributes: [
-      .font: NSFont.systemFont(ofSize: 14.5), .foregroundColor: palette.textTertiary, .paragraphStyle: para])
-    body.font = .systemFont(ofSize: 14.5)
+      .font: NSFont.systemFont(ofSize: 14.5 * Style.scale), .foregroundColor: palette.textTertiary, .paragraphStyle: para])
+    body.font = .systemFont(ofSize: 14.5 * Style.scale)
     body.textColor = palette.textTertiary
     body.shadow = textShadow
     body.maximumNumberOfLines = 4
@@ -420,29 +442,18 @@ final class CardPanel: NSPanel {
       let more = group.notices.count - 1 - history.count
       if more > 0 {
         let rest = NSTextField(labelWithString: "그리고 \(more)개 더")
-        rest.font = .systemFont(ofSize: 12, weight: .medium)
+        rest.font = .systemFont(ofSize: 12 * Style.scale, weight: .medium)
         rest.textColor = palette.textTertiary
         column.addArrangedSubview(rest)
       }
     }
     column.translatesAutoresizingMaskIntoConstraints = false
-    contentHost.addSubview(column)
-
-    let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "닫기")!,
-                         target: self, action: #selector(closeClicked))
-    close.isBordered = false
-    close.contentTintColor = palette.text.withAlphaComponent(0.38)
-    close.translatesAutoresizingMaskIntoConstraints = false
-    column.addSubview(close)
+    contentHost.addSubview(column, positioned: .below, relativeTo: nil)
 
     NSLayoutConstraint.activate([
       column.leadingAnchor.constraint(equalTo: contentHost.leadingAnchor, constant: Style.padding),
       column.topAnchor.constraint(equalTo: contentHost.topAnchor, constant: Style.padding),
       column.trailingAnchor.constraint(lessThanOrEqualTo: contentHost.trailingAnchor, constant: -Style.padding),
-      close.topAnchor.constraint(equalTo: contentHost.topAnchor, constant: 15),
-      close.trailingAnchor.constraint(equalTo: contentHost.trailingAnchor, constant: -15),
-      close.widthAnchor.constraint(equalToConstant: 16),
-      close.heightAnchor.constraint(equalToConstant: 16),
     ])
     content = column
 
@@ -451,18 +462,42 @@ final class CardPanel: NSPanel {
     return cardHeight
   }
 
-  private func badge(_ text: String) -> NSView {
-    let label = NSTextField(labelWithString: text)
-    label.font = .monospacedDigitSystemFont(ofSize: 11, weight: .bold)
-    label.textColor = .white
-    label.alignment = .center
-    label.wantsLayer = true
-    label.layer?.backgroundColor = palette.tint.cgColor
-    label.layer?.cornerRadius = 9
-    label.translatesAutoresizingMaskIntoConstraints = false
-    label.heightAnchor.constraint(equalToConstant: 18).isActive = true
-    label.widthAnchor.constraint(greaterThanOrEqualToConstant: 22).isActive = true
-    return label
+  /// The close button and its countdown ring sit in the card corner, apart from the content layout:
+  /// made once, kept through rebuilds, always above whatever the content lays out.
+  private func installCorner() {
+    if closeButton == nil {
+      let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "닫기")!,
+                           target: self, action: #selector(closeClicked))
+      close.isBordered = false
+      close.contentTintColor = palette.text.withAlphaComponent(0.38)
+      close.translatesAutoresizingMaskIntoConstraints = false
+      let ring = CountdownRing(tint: palette.tint, track: palette.text.withAlphaComponent(0.1), glow: palette.isDark)
+      // Catches presses anywhere on the card except the corner, so a drag works over text and icon alike;
+      // it handles nothing itself and lets the events climb to the panel.
+      let dragCatcher = NSView()
+      dragCatcher.translatesAutoresizingMaskIntoConstraints = false
+      contentHost.addSubview(dragCatcher)
+      contentHost.addSubview(ring)
+      contentHost.addSubview(close)
+      NSLayoutConstraint.activate([
+        dragCatcher.leadingAnchor.constraint(equalTo: contentHost.leadingAnchor),
+        dragCatcher.trailingAnchor.constraint(equalTo: contentHost.trailingAnchor),
+        dragCatcher.topAnchor.constraint(equalTo: contentHost.topAnchor),
+        dragCatcher.bottomAnchor.constraint(equalTo: contentHost.bottomAnchor),
+        close.topAnchor.constraint(equalTo: contentHost.topAnchor, constant: 15),
+        close.trailingAnchor.constraint(equalTo: contentHost.trailingAnchor, constant: -15),
+        close.widthAnchor.constraint(equalToConstant: 16),
+        close.heightAnchor.constraint(equalToConstant: 16),
+        ring.centerXAnchor.constraint(equalTo: close.centerXAnchor),
+        ring.centerYAnchor.constraint(equalTo: close.centerYAnchor),
+        ring.widthAnchor.constraint(equalToConstant: CountdownRing.size),
+        ring.heightAnchor.constraint(equalToConstant: CountdownRing.size),
+      ])
+      closeButton = close
+      self.ring = ring
+    }
+    // A persistent alert has no countdown, exactly like the system's.
+    ring?.isHidden = group.isAlert
   }
 
   private func divider(width: CGFloat) -> NSView {
@@ -495,11 +530,11 @@ final class CardPanel: NSPanel {
 
     let line = NSMutableAttributedString()
     line.append(NSAttributedString(string: n.title, attributes: [
-      .font: NSFont.systemFont(ofSize: 12.5, weight: .semibold), .foregroundColor: palette.textSecondary]))
+      .font: NSFont.systemFont(ofSize: 12.5 * Style.scale, weight: .semibold), .foregroundColor: palette.textSecondary]))
     let tail = [n.subtitle, n.body].filter { !$0.isEmpty }.joined(separator: " · ")
     if !tail.isEmpty {
       line.append(NSAttributedString(string: "  " + tail, attributes: [
-        .font: NSFont.systemFont(ofSize: 12.5), .foregroundColor: palette.textTertiary]))
+        .font: NSFont.systemFont(ofSize: 12.5 * Style.scale), .foregroundColor: palette.textTertiary]))
     }
     let label = NSTextField(labelWithString: "")
     label.attributedStringValue = line
@@ -525,7 +560,7 @@ final class CardPanel: NSPanel {
     b.layer?.borderWidth = 1
     b.layer?.cornerRadius = 14
     let padded = NSMutableAttributedString(string: "  \(label)  ")
-    padded.addAttributes([.foregroundColor: palette.text, .font: NSFont.systemFont(ofSize: 13, weight: .semibold)],
+    padded.addAttributes([.foregroundColor: palette.text, .font: NSFont.systemFont(ofSize: 13 * Style.scale, weight: .semibold)],
                          range: NSRange(location: 0, length: padded.length))
     b.attributedTitle = padded
     b.translatesAutoresizingMaskIntoConstraints = false
@@ -559,16 +594,54 @@ final class CardPanel: NSPanel {
   override func mouseEntered(with event: NSEvent) {
     isHovered = true
     dismissWork?.cancel()
+    ring?.freeze()
   }
 
   override func mouseExited(with event: NSEvent) {
+    guard !isDragging else { return }
     isHovered = false
-    if dismissWhenMouseLeaves { dismiss(); return }
-    scheduleAutoDismiss(after: 1.5)
+    // A short grace, so a pointer that only brushed past does not take the card with it.
+    if dismissWhenMouseLeaves { startDismiss(after: 1.5) } else { scheduleAutoDismiss(after: 1.5) }
   }
 
-  /// The system banner behind this card is gone; follow it, unless the user is looking at it.
+  // MARK: drag
+
+  /// The card without its transparent margin, in screen coordinates.
+  private var cardRect: NSRect { frame.insetBy(dx: Style.margin, dy: Style.margin) }
+
+  override func mouseDown(with event: NSEvent) {
+    dragStart = NSEvent.mouseLocation
+    dragOrigin = frame.origin
+    isDragging = false
+  }
+
+  override func mouseDragged(with event: NSEvent) {
+    guard let start = dragStart else { return }
+    let now = NSEvent.mouseLocation
+    let dx = now.x - start.x, dy = now.y - start.y
+    if !isDragging {
+      guard hypot(dx, dy) > 4 else { return }
+      isDragging = true
+      dismissWork?.cancel()
+      ring?.freeze()
+    }
+    setFrameOrigin(NSPoint(x: dragOrigin.x + dx, y: dragOrigin.y + dy))
+    onDrag?(self)
+  }
+
+  override func mouseUp(with event: NSEvent) {
+    defer { dragStart = nil }
+    guard isDragging else { return }
+    isDragging = false
+    onDragEnd?(self)
+    if !cardRect.contains(NSEvent.mouseLocation) { mouseExited(with: event) }
+  }
+
+  /// The system banner behind this card is gone. A banner card lives by the user's duration setting
+  /// instead; only a persistent alert follows the system's, unless the user is looking at it.
   func originalGone() {
+    logD("card \(group.app): original gone, alert=\(group.isAlert)")
+    guard group.isAlert else { return }
     if isHovered { dismissWhenMouseLeaves = true } else { dismiss() }
   }
 
@@ -576,8 +649,19 @@ final class CardPanel: NSPanel {
   /// A persistent alert stays, exactly like the system's, until the user acts on it.
   func scheduleAutoDismiss(after seconds: TimeInterval = Style.showSeconds) {
     dismissWork?.cancel()
-    guard !group.isAlert else { return }
-    let work = DispatchWorkItem { [weak self] in self?.dismiss() }
+    guard !group.isAlert, !isHovered else { return }
+    startDismiss(after: seconds)
+  }
+
+  /// The countdown itself: the ring drains over `seconds`, then the card goes unless the pointer came back.
+  private func startDismiss(after seconds: TimeInterval) {
+    logD("card \(group.app): timer \(seconds)s")
+    dismissWork?.cancel()
+    ring?.drain(over: seconds)
+    let work = DispatchWorkItem { [weak self] in
+      guard let self, !self.isHovered else { return }
+      self.dismiss()
+    }
     dismissWork = work
     DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
   }
@@ -595,6 +679,7 @@ final class CardPanel: NSPanel {
   func present(at frame: NSRect) {
     presentedAt = Date()
     setFrame(frame, display: false)
+    isHovered = cardRect.contains(NSEvent.mouseLocation)
     root.layoutSubtreeIfNeeded()
     sheen.layout()
     guard let layer = root.layer else { return }
@@ -648,6 +733,8 @@ final class CardPanel: NSPanel {
 
   /// Called after the group gained a notice: content is rebuilt, the card nudges and the timer restarts.
   func bump() {
+    logD("card \(group.app): bump, hovered=\(isHovered)")
+    ring?.refill()
     scheduleAutoDismiss()
     guard !reduceMotion, let layer = root.layer else { return }
     let nudge = CAKeyframeAnimation(keyPath: "sublayerTransform")
@@ -670,6 +757,7 @@ final class CardPanel: NSPanel {
 
   func dismiss() {
     guard !isClosing else { return }
+    logD("card \(group.app): dismiss")
     isClosing = true
     dismissWork?.cancel()
     guard !reduceMotion, let layer = root.layer else {
@@ -704,8 +792,76 @@ final class CardPanel: NSPanel {
 
 extension CardPanel: NSGestureRecognizerDelegate {
   func gestureRecognizer(_ g: NSGestureRecognizer, shouldAttemptToRecognizeWith event: NSEvent) -> Bool {
-    let p = glassHost.convert(event.locationInWindow, from: nil)
-    return !(glassHost.hitTest(p) is NSButton)
+    // hitTest takes a point in the receiver's superview coordinates; for the content view that is the window.
+    return !(root.hitTest(event.locationInWindow) is NSButton)
+  }
+}
+
+// MARK: - Countdown ring
+
+/// Time left before the card goes, as an arc around the close button. It only reads: it drains
+/// clockwise from full, holds while the pointer is on the card, and refills when a new notice lands.
+final class CountdownRing: NSView {
+  static let size: CGFloat = 30
+  private let arc = CAShapeLayer()
+
+  init(tint: NSColor, track: NSColor, glow: Bool) {
+    super.init(frame: NSRect(x: 0, y: 0, width: Self.size, height: Self.size))
+    wantsLayer = true
+    translatesAutoresizingMaskIntoConstraints = false
+    let r = Self.size / 2
+    let path = NSBezierPath()
+    path.appendArc(withCenter: NSPoint(x: r, y: r), radius: r - 1.5, startAngle: 90, endAngle: -270, clockwise: true)
+    let trackLayer = CAShapeLayer()
+    for (shape, color) in [(trackLayer, track), (arc, tint)] {
+      shape.path = path.cgPath
+      shape.fillColor = nil
+      shape.strokeColor = color.cgColor
+      shape.lineWidth = 1.5
+      shape.lineCap = .round
+      shape.frame = bounds
+      layer?.addSublayer(shape)
+    }
+    if glow {
+      arc.shadowColor = tint.cgColor
+      arc.shadowOpacity = 0.45
+      arc.shadowRadius = 3
+      arc.shadowOffset = .zero
+    }
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+  /// Purely visual: clicks fall through to whatever is underneath.
+  override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+  /// Where the drained edge is right now, 0 (full) … 1 (empty). While a drain is running that is what
+  /// is on screen; otherwise the model value, which a refill or freeze has just set.
+  private var drained: CGFloat {
+    guard arc.animation(forKey: "drain") != nil, let shown = arc.presentation() else { return arc.strokeStart }
+    return shown.strokeStart
+  }
+
+  func drain(over seconds: TimeInterval) {
+    let from = drained
+    set(strokeStart: 1)
+    let a = CABasicAnimation(keyPath: "strokeStart")
+    a.fromValue = from
+    a.toValue = 1
+    a.duration = seconds
+    a.timingFunction = CAMediaTimingFunction(name: .linear)
+    arc.add(a, forKey: "drain")
+  }
+
+  func freeze() { set(strokeStart: drained) }
+  func refill() { set(strokeStart: 0) }
+
+  private func set(strokeStart: CGFloat) {
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    arc.removeAllAnimations()
+    arc.strokeStart = strokeStart
+    CATransaction.commit()
   }
 }
 
@@ -718,15 +874,30 @@ struct CardHandlers {
   let close: (NoticeGroup) -> Void
 }
 
-/// One card per app, newest group on top, the stack centred on the primary display.
+/// One card per app, the stack anchored where the settings say, on the chosen display.
 final class CardManager {
   private var cards: [CardPanel] = []
   private let handlers: CardHandlers
+  private let settings = Settings.shared
+
+  /// The display to place the stack on: the user's explicit choice, else the one the newest card's
+  /// notification appeared on, else the primary. Following the notification keeps "가운데" truly centred
+  /// on the display the banner used, regardless of arrangement or resolution.
+  private var currentScreen: NSScreen {
+    if settings.displayID != 0 { return settings.screen }
+    if let id = cards.first?.group.latest.screenNumber, id != 0,
+       let match = NSScreen.screens.first(where: { Settings.id(of: $0) == id }) { return match }
+    return Settings.primaryScreen
+  }
 
   init(handlers: CardHandlers) { self.handlers = handlers }
 
   func add(_ notice: Notice) {
-    if !notice.app.isEmpty, let existing = cards.first(where: { $0.group.app == notice.app }) {
+    // Group only same app AND same source: a message mirrored from the iPhone is its own card, separate
+    // from the same app running on this Mac. A card on its way out cannot take the notice either.
+    if !notice.app.isEmpty, let existing = cards.first(where: {
+      $0.group.app == notice.app && $0.group.fromIPhone == notice.fromIPhone && !$0.isClosing
+    }) {
       existing.group.add(notice)
       existing.rebuildContent()
       cards.removeAll { $0 === existing }
@@ -744,6 +915,8 @@ final class CardManager {
       self.cards.removeAll { $0 === card }
       self.layout()
     }
+    card.onDrag = { [weak self] dragged in self?.follow(dragged) }
+    card.onDragEnd = { [weak self] dragged in self?.dragEnded(dragged) }
     cards.insert(card, at: 0)
     while cards.count > Style.maxGroups, let oldest = cards.last {
       cards.removeLast()
@@ -766,28 +939,74 @@ final class CardManager {
     card.originalGone()
   }
 
-  private func layout() {
+  func layout() {
     for (c, f) in zip(cards, targetFrames()) { c.move(to: f) }
   }
 
-  /// Always the primary display (the one with the menu bar), whatever the mouse is doing.
-  private func screen() -> NSScreen {
-    NSScreen.screens.first ?? NSScreen.main!
+  /// While one card is dragged the rest of the stack keeps formation around it.
+  private func follow(_ dragged: CardPanel) {
+    let frames = targetFrames()
+    guard let i = cards.firstIndex(where: { $0 === dragged }) else { return }
+    let dx = dragged.frame.minX - frames[i].minX, dy = dragged.frame.minY - frames[i].minY
+    for (c, f) in zip(cards, frames) where c !== dragged {
+      c.setFrameOrigin(NSPoint(x: f.minX + dx, y: f.minY + dy))
+    }
   }
 
-  /// Window frames (card plus transparent margin) stacked so the group is centred on screen.
-  private func targetFrames() -> [NSRect] {
-    let s = screen().visibleFrame
+  /// Where the stack was dropped becomes its place, kept for later cards until "원래 위치로".
+  private func dragEnded(_ dragged: CardPanel) {
+    let frames = targetFrames()
+    guard let i = cards.firstIndex(where: { $0 === dragged }) else { return }
+    var offset = settings.offset
+    offset.x += dragged.frame.minX - frames[i].minX
+    offset.y += dragged.frame.minY - frames[i].minY
+    settings.offset = clamped(offset)
+  }
+
+  /// Keeps every card of the stack on the chosen display.
+  private func clamped(_ offset: NSPoint) -> NSPoint {
+    let s = currentScreen.visibleFrame
+    let frames = targetFrames(offset: offset)
+    guard var stack = frames.first?.insetBy(dx: Style.margin, dy: Style.margin) else { return offset }
+    for f in frames.dropFirst() { stack = stack.union(f.insetBy(dx: Style.margin, dy: Style.margin)) }
+    var fixed = offset
+    if stack.minX < s.minX { fixed.x += s.minX - stack.minX }
+    if stack.maxX > s.maxX { fixed.x -= stack.maxX - s.maxX }
+    if stack.minY < s.minY { fixed.y += s.minY - stack.minY }
+    if stack.maxY > s.maxY { fixed.y -= stack.maxY - s.maxY }
+    return fixed
+  }
+
+  /// Window frames (card plus transparent margin) for every card, in `cards` order: the stack hangs from
+  /// the anchor on the chosen display, shifted by the drag offset. The newest card sits nearest the anchor
+  /// edge, so it is on top in the upper and middle rows, at the bottom in the bottom row.
+  private func targetFrames(offset: NSPoint? = nil) -> [NSRect] {
+    let s = currentScreen.visibleFrame
+    let shift = offset ?? settings.offset
+    let anchor = settings.anchor
     let heights = cards.map { $0.cardHeight }
     let total = heights.reduce(0, +) + CGFloat(max(0, cards.count - 1)) * Style.gap
-    var y = s.midY + total / 2
-    let x = s.midX - Style.width / 2
-    return heights.map { h in
-      y -= h
-      let f = NSRect(x: x - Style.margin, y: y - Style.margin,
-                     width: Style.width + Style.margin * 2, height: h + Style.margin * 2)
-      y -= Style.gap
-      return f
+    let x: CGFloat
+    switch anchor.column {
+    case 0: x = s.minX + Style.edgeInset
+    case 2: x = s.maxX - Style.edgeInset - Style.width
+    default: x = s.midX - Style.width / 2
     }
+    let top: CGFloat
+    switch anchor.row {
+    case 0: top = s.maxY - Style.edgeInset
+    case 2: top = s.minY + Style.edgeInset + total
+    default: top = s.midY + total / 2
+    }
+    let order = anchor.isBottom ? Array(cards.indices.reversed()) : Array(cards.indices)
+    var frames = [NSRect](repeating: .zero, count: cards.count)
+    var y = top
+    for i in order {
+      y -= heights[i]
+      frames[i] = NSRect(x: x - Style.margin + shift.x, y: y - Style.margin + shift.y,
+                         width: Style.width + Style.margin * 2, height: heights[i] + Style.margin * 2)
+      y -= Style.gap
+    }
+    return frames
   }
 }

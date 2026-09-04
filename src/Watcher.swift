@@ -15,6 +15,12 @@ struct Notice {
   let icon: NSImage?
   /// Buttons the system banner offers (보기, 답장, 닫기 …).
   let actions: [AXAction]
+  /// The display the banner appeared on (a CGDirectDisplayID); 0 when unknown. The card centres here,
+  /// so it lands where the notification was, whatever the display arrangement or resolution.
+  var screenNumber: UInt32 = 0
+  /// Relayed from the mirrored iPhone. A different source than the same app on this Mac, so it gets its
+  /// own card rather than merging with the Mac app's notifications.
+  var fromIPhone = false
 
   /// Identity for de-duplication and lifetime tracking.
   var key: String { uuid.isEmpty ? "\(app)|\(title)|\(subtitle)|\(body)" : uuid }
@@ -218,9 +224,18 @@ final class Watcher {
         releasedWindows.remove(w)
         restore(w, reason: "no banner")
       case .banners(let banners):
+        if banners.contains(where: isPermissionPrompt) {
+          // macOS asking "‘App’ 알림 허용?" lives here too. It must stay where its buttons can be pressed.
+          releasedWindows.remove(w)
+          restore(w, reason: "permission prompt")
+          continue
+        }
+        // The window's own top-left, before parking moved it away, names the display the banner is on.
+        let originForScreen = parkedOrigins[w] ?? w.frame()?.origin
         park(w)
+        let screenNumber = originForScreen.flatMap(displayID(forAXPoint:)) ?? 0
         for b in banners {
-          guard let notice = extract(b) else {
+          guard var notice = extract(b) else {
             if !pendingRescan {
               // Text not populated yet; look again shortly.
               pendingRescan = true
@@ -231,6 +246,7 @@ final class Watcher {
             }
             continue
           }
+          notice.screenNumber = screenNumber
           let key = notice.key
           present.insert(key)
           let now = Date()
@@ -277,6 +293,15 @@ final class Watcher {
   }
 
   // MARK: park / restore
+
+  /// The display containing a point given in AX/CoreGraphics global coordinates (top-left origin).
+  private func displayID(forAXPoint p: CGPoint) -> UInt32? {
+    var id = CGDirectDisplayID(0)
+    var count: UInt32 = 0
+    let nudged = CGPoint(x: p.x + 10, y: p.y + 10)
+    guard CGGetDisplaysWithPoint(nudged, 1, &id, &count) == .success, count > 0, id != 0 else { return nil }
+    return id
+  }
 
   private func park(_ window: AXUIElement) {
     guard !releasedWindows.contains(window) else { return }
@@ -336,6 +361,10 @@ final class Watcher {
 
   // MARK: content
 
+  /// iPhone Mirroring appends a handoff line ("iPhone에서 가져옴" / "from your iPhone") to the banner.
+  /// It marks a notification relayed from the phone, a different source than the same app on this Mac.
+  private static let iPhoneHandoffMarkers = ["iPhone에서 가져옴", "from your iPhone", "from iPhone", "iPhone에서"]
+
   private func extract(_ banner: AXUIElement) -> Notice? {
     if dumpedBanners < 3 {
       dumpedBanners += 1
@@ -346,19 +375,54 @@ final class Watcher {
     var fields = [String: String]()
     var others: [String] = []
     collectTexts(banner, depth: 0, fields: &fields, others: &others)
-    let title = fields["title"] ?? others.first ?? ""
+
+    // A notification relayed from the mirrored iPhone. Drop the handoff text so it never shows in the card.
+    func isHandoff(_ s: String) -> Bool { Self.iPhoneHandoffMarkers.contains { s.localizedCaseInsensitiveContains($0) } }
+    let descRaw = cleanAX(banner.desc ?? banner.attributedDescription ?? "")
+    let fromIPhone = isHandoff(descRaw)
+    if fromIPhone {
+      others.removeAll(where: isHandoff)
+      for (k, v) in fields where isHandoff(v) { fields[k] = nil }
+    }
+
+    var title = fields["title"] ?? others.first ?? ""
     let subtitle = fields["subtitle"] ?? ""
     let body = fields["body"] ?? (fields["title"] == nil ? others.dropFirst().joined(separator: "\n") : others.joined(separator: "\n"))
     // The banner's description reads "<app name> <title>, <subtitle>, <body>".
     let desc = cleanAX(banner.desc ?? banner.attributedDescription ?? "")
     var app = cleanAX(desc.components(separatedBy: ", ").first ?? desc)
     if !title.isEmpty, app.hasSuffix(title) { app = cleanAX(String(app.dropLast(title.count))) }
+    // Some senders carry no app name in the description (phone notifications without a title, for one):
+    // the first part is just the title. Then that is the name to show, and the title line stays empty.
+    if app.isEmpty, !title.isEmpty {
+      logI("no app name in \"\(desc.prefix(80))\"; showing the title as the sender")
+      app = title
+      title = ""
+    }
     guard !title.isEmpty || !body.isEmpty || !app.isEmpty else { return nil }
     let uuid = (banner.identifier ?? "").uppercased()
     return Notice(app: app, title: title, subtitle: subtitle, body: body,
                   isAlert: banner.subrole == "AXNotificationCenterAlert",
                   element: banner, uuid: uuid.count == 36 ? uuid : "",
-                  icon: AppIcons.shared.icon(named: app), actions: banner.customActions())
+                  icon: fromIPhone ? AppIcons.iPhoneImage : AppIcons.shared.icon(named: app),
+                  actions: banner.customActions(), fromIPhone: fromIPhone)
+  }
+
+  /// The permission request describes itself as "‘<app>’ 알림 경고" and offers 허용 / 허용 안 함.
+  private func isPermissionPrompt(_ banner: AXUIElement) -> Bool {
+    let desc = cleanAX(banner.desc ?? banner.attributedDescription ?? "")
+    if Self.quotedName(desc) != nil { return true }
+    return banner.customActions().contains { ["허용", "Allow"].contains($0.label) }
+  }
+
+  private static func quotedName(_ s: String) -> String? {
+    let opens: Set<Character> = ["‘", "“", "'", "\""]
+    let closes: Set<Character> = ["’", "”", "'", "\""]
+    guard let first = s.first, opens.contains(first) else { return nil }
+    let rest = s.dropFirst()
+    guard let end = rest.firstIndex(where: { closes.contains($0) }) else { return nil }
+    let name = rest[..<end].trimmingCharacters(in: .whitespaces)
+    return name.isEmpty ? nil : name
   }
 
   private func collectTexts(_ el: AXUIElement, depth: Int, fields: inout [String: String], others: inout [String]) {
@@ -377,41 +441,163 @@ final class Watcher {
   }
 }
 
-/// Finds apps by their localized display name (what the banner shows), e.g. "스크립트 편집기".
+/// Finds apps by the name the banner shows (localized display name, e.g. "스크립트 편집기").
 final class AppIcons {
   static let shared = AppIcons()
   private var pathByName = [String: String]()
+  private var missed = Set<String>()
   private var scanned = false
 
+  /// The app's real icon, or a picture of where the notification came from: an iPhone for an app that
+  /// only exists on the mirrored phone, this Mac for a Mac-side sender without an icon.
   func icon(named name: String) -> NSImage? {
-    guard !name.isEmpty else { return nil }
+    guard !name.isEmpty else { return Self.hasIPhoneMirroring ? Self.iPhoneImage : Self.macImage }
     if let running = NSWorkspace.shared.runningApplications.first(where: { $0.localizedName == name }) {
-      return running.icon
+      return running.icon ?? Self.macImage
     }
     if let path = path(named: name) { return NSWorkspace.shared.icon(forFile: path) }
-    return nil
+    logD("app icon: \"\(name)\" is not on this Mac, showing \(Self.hasIPhoneMirroring ? "iPhone" : "this Mac")")
+    return Self.hasIPhoneMirroring ? Self.iPhoneImage : Self.macImage
   }
+
+  /// This Mac as the system draws it (About This Mac, Finder sidebar): the right model, automatically.
+  static let macImage: NSImage? = NSImage(named: NSImage.computerName)
+
+  /// An iPhone as Apple renders it. ProductKitCore carries product images by model; current models look
+  /// alike from the front, so iPhone Air stands in for whatever is mirrored. The renders sit small inside
+  /// a wide canvas, so they are trimmed to the phone. If the framework changes, a drawn phone takes over.
+  static let iPhoneImage: NSImage? = {
+    let productKit = Bundle(path: "/System/Library/PrivateFrameworks/ProductKitCore.framework")
+    for name in ["iPhoneAir", "iPhone17", "iPhone16Pro"] {
+      if let image = productKit?.image(forResource: NSImage.Name(name)) { return trimmed(image) }
+    }
+    return drawnIPhone(size: 256)
+  }()
+
+  /// The image cut down to its opaque pixels, from its largest representation.
+  private static func trimmed(_ image: NSImage) -> NSImage {
+    guard let rep = image.representations.max(by: { $0.pixelsWide < $1.pixelsWide }),
+          let cg = rep.cgImage(forProposedRect: nil, context: nil, hints: nil),
+          let ctx = CGContext(data: nil, width: cg.width, height: cg.height, bitsPerComponent: 8,
+                              bytesPerRow: cg.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return image }
+    ctx.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+    guard let data = ctx.data else { return image }
+    let px = data.bindMemory(to: UInt8.self, capacity: cg.width * cg.height * 4)
+    var minX = cg.width, minY = cg.height, maxX = -1, maxY = -1
+    for y in 0..<cg.height {
+      for x in 0..<cg.width where px[(y * cg.width + x) * 4 + 3] > 8 {
+        minX = min(minX, x)
+        maxX = max(maxX, x)
+        minY = min(minY, y)
+        maxY = max(maxY, y)
+      }
+    }
+    guard maxX >= minX, maxY >= minY,
+          let cropped = cg.cropping(to: CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1))
+    else { return image }
+    return NSImage(cgImage: cropped, size: NSSize(width: cropped.width, height: cropped.height))
+  }
+
+  /// A current iPhone from the front: thin bezel, Dynamic Island, the blue screen of the system's device icons.
+  private static func drawnIPhone(size s: CGFloat) -> NSImage {
+    NSImage(size: NSSize(width: s, height: s), flipped: false) { _ in
+      let h = s * 0.92, w = h / 2.05
+      let body = NSRect(x: (s - w) / 2, y: (s - h) / 2, width: w, height: h)
+      let bodyR = w * 0.17
+      let bodyPath = NSBezierPath(roundedRect: body, xRadius: bodyR, yRadius: bodyR)
+      NSGradient(colors: [NSColor(calibratedWhite: 0.30, alpha: 1), NSColor(calibratedWhite: 0.10, alpha: 1),
+                          NSColor(calibratedWhite: 0.22, alpha: 1)])!.draw(in: bodyPath, angle: -60)
+      NSColor(calibratedWhite: 0.55, alpha: 0.9).setStroke()
+      bodyPath.lineWidth = max(1, s * 0.006)
+      bodyPath.stroke()
+      let bezel = w * 0.035
+      let screen = body.insetBy(dx: bezel, dy: bezel)
+      let screenPath = NSBezierPath(roundedRect: screen, xRadius: bodyR - bezel, yRadius: bodyR - bezel)
+      NSGradient(colors: [NSColor(calibratedRed: 0.36, green: 0.66, blue: 0.98, alpha: 1),
+                          NSColor(calibratedRed: 0.20, green: 0.48, blue: 0.92, alpha: 1)])!.draw(in: screenPath, angle: -90)
+      let islandW = screen.width * 0.30, islandH = screen.width * 0.085
+      NSColor(calibratedWhite: 0.04, alpha: 1).setFill()
+      NSBezierPath(roundedRect: NSRect(x: screen.midX - islandW / 2, y: screen.maxY - screen.width * 0.06 - islandH,
+                                       width: islandW, height: islandH),
+                   xRadius: islandH / 2, yRadius: islandH / 2).fill()
+      NSColor(calibratedWhite: 0.40, alpha: 1).setFill()
+      let bw = max(1, w * 0.02)
+      for (y, len) in [(0.80, 0.045), (0.70, 0.085), (0.60, 0.085)] {
+        NSRect(x: body.minX - bw, y: body.minY + h * CGFloat(y), width: bw, height: h * CGFloat(len)).fill()
+      }
+      NSRect(x: body.maxX, y: body.minY + h * 0.66, width: bw, height: h * 0.12).fill()
+      return true
+    }
+  }
+
+  /// iPhone Mirroring has been set up on this Mac, so a sender that is not a Mac app is most likely a phone app.
+  static let hasIPhoneMirroring =
+    FileManager.default.fileExists(atPath: NSHomeDirectory() + "/Library/Containers/com.apple.ScreenContinuity")
 
   func path(named name: String) -> String? {
     if !scanned { scan() }
-    return pathByName[name]
+    if let path = pathByName[name] { return path }
+    guard !missed.contains(name) else { return nil }
+    if let path = spotlight(named: name) {
+      pathByName[name] = path
+      return path
+    }
+    missed.insert(name)
+    logD("app icon: no app named \"\(name)\"")
+    return nil
   }
 
+  /// Standard app folders plus one level of vendor subfolders (e.g. /Applications/Utilities, ~/Applications/JetBrains).
   private func scan() {
     scanned = true
     let fm = FileManager.default
-    let dirs = ["/Applications", "/Applications/Utilities", NSHomeDirectory() + "/Applications",
-                "/System/Applications", "/System/Applications/Utilities", "/System/Library/CoreServices"]
-    for dir in dirs {
-      for entry in (try? fm.contentsOfDirectory(atPath: dir)) ?? [] where entry.hasSuffix(".app") {
-        let path = "\(dir)/\(entry)"
-        var display = fm.displayName(atPath: path)
-        if display.hasSuffix(".app") { display = String(display.dropLast(4)) }
-        if pathByName[display] == nil { pathByName[display] = path }
-        let plain = String(entry.dropLast(4))
-        if pathByName[plain] == nil { pathByName[plain] = path }
+    let roots = ["/Applications", NSHomeDirectory() + "/Applications",
+                 "/System/Applications", "/System/Library/CoreServices"]
+    for root in roots {
+      for entry in (try? fm.contentsOfDirectory(atPath: root)) ?? [] {
+        let path = "\(root)/\(entry)"
+        if entry.hasSuffix(".app") { register(path); continue }
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else { continue }
+        for sub in (try? fm.contentsOfDirectory(atPath: path)) ?? [] where sub.hasSuffix(".app") {
+          register("\(path)/\(sub)")
+        }
       }
     }
-    logD("app icon index: \(pathByName.count) apps")
+    logD("app icon index: \(pathByName.count) names")
+  }
+
+  /// One bundle answers to several names: file name, Finder display name, CFBundleDisplayName / CFBundleName
+  /// in the current language and in the base Info.plist.
+  private func register(_ path: String) {
+    let fm = FileManager.default
+    var names = [String((path as NSString).lastPathComponent.dropLast(4))]
+    var display = fm.displayName(atPath: path)
+    if display.hasSuffix(".app") { display = String(display.dropLast(4)) }
+    names.append(display)
+    if let bundle = Bundle(path: path) {
+      for dict in [bundle.localizedInfoDictionary, bundle.infoDictionary] {
+        for key in ["CFBundleDisplayName", "CFBundleName"] {
+          if let n = dict?[key] as? String { names.append(n) }
+        }
+      }
+    }
+    for n in names where !n.isEmpty && pathByName[n] == nil { pathByName[n] = path }
+  }
+
+  /// Apps installed anywhere else: ask Spotlight once per name.
+  private func spotlight(named name: String) -> String? {
+    let q = name.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'")
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: "/usr/bin/mdfind")
+    task.arguments = ["kMDItemContentType == 'com.apple.application-bundle' && (kMDItemDisplayName == '\(q)' || kMDItemFSName == '\(q).app')"]
+    let pipe = Pipe()
+    task.standardOutput = pipe
+    task.standardError = FileHandle.nullDevice
+    do { try task.run() } catch { return nil }
+    let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    task.waitUntilExit()
+    return out.split(separator: "\n").map(String.init).first { $0.hasSuffix(".app") }
   }
 }

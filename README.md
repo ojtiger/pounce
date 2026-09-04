@@ -16,4 +16,4 @@ macOS 가 우측 상단에 그리는 알림 배너를 그 순간 가로채 **주
 brew install --cask ojtiger/tap/pounce
 ```
 
-첫 실행 때 접근성 권한을 허용하면 끝입니다. macOS 14 이상.
+첫 실행 때 접근성 권한을 허용해야 합니다.

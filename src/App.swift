@@ -46,14 +46,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       }
     }))
   private var statusItem: NSStatusItem?
-  private lazy var settingsWindow = SettingsWindow(actions: SettingsActions(
+  private lazy var settingsActions = SettingsActions(
     sendTest: { [weak self] in self?.sendTest() },
     sendFiveTests: { [weak self] in self?.sendFiveTests() },
     sendPinnedTest: { [weak self] in self?.sendPinnedTest() },
     dismissAll: { [weak self] in self?.dismissAll() },
     openLog: { [weak self] in self?.openLog() },
-    quit: { [weak self] in self?.quit() }))
+    openAccessibility: { [weak self] in self?.openAccessibility() },
+    quit: { [weak self] in self?.quit() })
+  private var settingsWindowStore: SettingsWindow?
+  /// Built on demand, and thrown away when the language changes: every label in it is fixed at build time.
+  private var settingsWindow: SettingsWindow {
+    if let window = settingsWindowStore { return window }
+    let window = SettingsWindow(actions: settingsActions)
+    settingsWindowStore = window
+    return window
+  }
   private var trustTimer: Timer?
+  /// Titles of pinned tests posted through the notification API, waiting to be recognised on the way back.
+  private var pendingPinnedTests = Set<String>()
+  private var updateTimer: Timer?
   private var termSources: [DispatchSourceSignal] = []
 
   func applicationDidFinishLaunching(_: Notification) {
@@ -61,6 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     setupStatusItem()
     installMainMenu()
     Settings.shared.onMenuBarChange = { [weak self] in self?.applyMenuBarVisibility() }
+    Settings.shared.onLanguageChange = { [weak self] in self?.languageChanged() }
     Settings.shared.onChange = { [weak self] in self?.cards.layout() }
     Settings.shared.onSizeChange = { [weak self] in self?.cards.dismissAll() }
     NotificationCenter.default.addObserver(self, selector: #selector(screensChanged),
@@ -68,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     watcher.onNotice = { [weak self] notice in self?.present(notice, via: "ax") }
     watcher.onGone = { [weak self] key in self?.cards.remove(key: key) }
     watcher.onLostTrust = { [weak self] in self?.ensureTrustedThenStart() }
+    startUpdateChecks()
     let dnc = DistributedNotificationCenter.default()
     dnc.addObserver(self, selector: #selector(screenLocked), name: .init("com.apple.screenIsLocked"), object: nil)
     dnc.addObserver(self, selector: #selector(screenUnlocked), name: .init("com.apple.screenIsUnlocked"), object: nil)
@@ -144,6 +158,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   /// Both routes feed here; whichever reports a notification first wins.
   private func present(_ notice: Notice, via route: String) {
+    var notice = notice
+    // The pinned test came back from the system as an ordinary banner. Pin it here so the card
+    // behaves as the test promises, whatever notification style the Mac gives Pounce.
+    if notice.app == "Pounce", pendingPinnedTests.remove(notice.title) != nil {
+      notice.isAlert = true
+      notice.pinned = true
+    }
     let now = Date()
     seen = seen.filter { now.timeIntervalSince($0.value) < 120 }
     if let t = seen[notice.key], now.timeIntervalSince(t) < 60 {
@@ -163,32 +184,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private func setupStatusItem() {
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     item.button?.image = Self.menuBarPaw()
-    let menu = NSMenu()
-    menu.addItem(withTitle: "설정…", action: #selector(openSettings), keyEquivalent: ",")
-    menu.addItem(withTitle: "닫기", action: #selector(quit), keyEquivalent: "q")
-    for m in menu.items { m.target = self }
-    item.menu = menu
+    item.menu = statusMenu()
     item.isVisible = !Settings.shared.menuBarHidden
     statusItem = item
   }
 
-  /// A Pounce-branded test notice, built right here so it carries the app's own icon and name,
-  /// exactly like the pinned test. Nothing goes through macOS, so no permission is needed.
+  private func statusMenu() -> NSMenu {
+    let menu = NSMenu()
+    menu.addItem(withTitle: T("설정…"), action: #selector(openSettings), keyEquivalent: ",")
+    menu.addItem(withTitle: T("닫기"), action: #selector(quit), keyEquivalent: "q")
+    for m in menu.items { m.target = self }
+    return menu
+  }
+
+  /// Everything visible was written in the old language, so the menus and the settings window are
+  /// built again. The window comes back on the tab it was left on, so the change reads as a redraw.
+  private func languageChanged() {
+    statusItem?.menu = statusMenu()
+    installMainMenu()
+    let previous = settingsWindowStore
+    let tab = previous?.selectedTab ?? 0
+    let wasVisible = previous?.window?.isVisible ?? false
+    previous?.window?.orderOut(nil)
+    settingsWindowStore = nil
+    guard wasVisible else { return }
+    let window = settingsWindow
+    window.show()
+    window.select(tab: tab)
+  }
+
+  /// A Pounce-branded test notice, built right here so it carries the app's own icon and name.
+  /// The fallback for when notifications are off: nothing goes through macOS, so no permission is needed.
   private func testNotice(_ title: String, _ body: String, alert: Bool) -> Notice {
-    Notice(app: "Pounce", title: title, subtitle: "", body: body,
-           isAlert: alert, element: nil, uuid: UUID().uuidString,
-           icon: NSApp.applicationIconImage, actions: [])
+    var n = Notice(app: "Pounce", title: title, subtitle: "", body: body,
+                   isAlert: alert, element: nil, uuid: UUID().uuidString,
+                   icon: NSApp.applicationIconImage, actions: [])
+    n.pinned = alert
+    return n
   }
 
   @objc private func sendTest() {
-    sendNotification("테스트 알림", "알림이 화면 가운데에 표시됩니다.")
+    sendNotification(T("테스트 알림"), T("알림이 화면 가운데에 표시됩니다."))
   }
 
   /// Five in a row, 1.2 s apart: they share the app, so they stack into one card.
   @objc private func sendFiveTests() {
     for i in 1...5 {
       DispatchQueue.main.asyncAfter(deadline: .now() + Double(i - 1) * 1.2) { [weak self] in
-        self?.sendNotification("테스트 알림 \(i)/5", "연속으로 온 알림은 카드 하나에 묶입니다.")
+        self?.sendNotification(T("테스트 알림 %d/5", i), T("연속으로 온 알림은 카드 하나에 묶입니다."))
       }
     }
   }
@@ -196,7 +239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// The real way: the app posts a notification under its own name, so the banner is Pounce's and
   /// our watcher intercepts it into a card with the app's icon. If notifications are off, we build the
   /// card directly so the test still works.
-  private func sendNotification(_ title: String, _ body: String) {
+  private func sendNotification(_ title: String, _ body: String, pinned: Bool = false) {
     let center = UNUserNotificationCenter.current()
     center.delegate = self
     center.getNotificationSettings { settings in
@@ -214,22 +257,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       case .notDetermined:
         center.requestAuthorization(options: [.alert]) { granted, _ in
           DispatchQueue.main.async {
-            if granted { post() } else { self.present(self.testNotice(title, body, alert: false), via: "test") }
+            if granted { post() } else { self.present(self.testNotice(title, body, alert: pinned), via: "test") }
           }
         }
       default:
         // Notifications denied for this app: fall back to a directly built card.
-        DispatchQueue.main.async { self.present(self.testNotice(title, body, alert: false), via: "test") }
+        DispatchQueue.main.async { self.present(self.testNotice(title, body, alert: pinned), via: "test") }
       }
     }
   }
 
-  /// A card that stays until closed, the way a persistent alert does.
+  /// A card that stays until closed, the way a persistent alert does. It goes out as a real
+  /// notification like the others; the system decides whether its banner is a banner or an alert,
+  /// so the title is remembered here and the card it comes back as is pinned on arrival.
   @objc private func sendPinnedTest() {
-    present(testNotice("고정 알림", "닫을 때까지 남습니다.", alert: true), via: "test")
+    let title = T("고정 알림")
+    pendingPinnedTests.insert(title)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in self?.pendingPinnedTests.remove(title) }
+    sendNotification(title, T("닫을 때까지 남습니다."), pinned: true)
   }
 
   @objc private func dismissAll() { cards.dismissAll() }
+
+  /// The automatic check: once a day at most, announced as a notification like any other, so it lands
+  /// in a card. Installing stays a button press in 설정 > 정보.
+  private func startUpdateChecks() {
+    Updater.shared.onNewVersion = { [weak self] release in
+      self?.sendNotification(T("새 버전 %@", release.version), T("설정 > 정보에서 업데이트할 수 있습니다."))
+    }
+    // A few seconds in: the watcher and the menu bar come first.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 5) { Updater.shared.checkInBackground() }
+    updateTimer = Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { _ in
+      Updater.shared.checkInBackground()
+    }
+  }
 
   /// The same paw as the app icon, as a template so the menu bar tints it for light, dark and accents.
   private static func menuBarPaw() -> NSImage? {
@@ -248,6 +309,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   @objc private func openLog() { NSWorkspace.shared.open(Log.shared.url) }
 
+  /// System Settings > Privacy & Security > Accessibility. Replacing the app resigns the binary and
+  /// macOS drops the grant, so this is the way back without hunting through the settings tree.
+  @objc private func openAccessibility() {
+    // Ask first: with the grant already gone the prompt puts Pounce back in the list to be switched on.
+    if !AXIsProcessTrusted() {
+      _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
+    }
+    guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else { return }
+    NSWorkspace.shared.open(url)
+  }
+
   @objc private func quit() { NSApp.terminate(nil) }
 
   private func applyMenuBarVisibility() {
@@ -265,10 +337,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private func installMainMenu() {
     let app = NSMenuItem()
     app.submenu = NSMenu()
-    app.submenu?.addItem(withTitle: "Pounce 종료", action: #selector(quit), keyEquivalent: "q").target = self
+    app.submenu?.addItem(withTitle: T("Pounce 종료"), action: #selector(quit), keyEquivalent: "q").target = self
     let window = NSMenuItem()
     window.submenu = NSMenu()
-    window.submenu?.addItem(withTitle: "닫기", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+    window.submenu?.addItem(withTitle: T("닫기"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
     let main = NSMenu()
     main.items = [app, window]
     NSApp.mainMenu = main

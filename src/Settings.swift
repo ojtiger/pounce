@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import ServiceManagement
 
 /// Where the stack of cards sits on the chosen display: a 3×3 grid of corners, edges and the centre.
@@ -7,15 +8,15 @@ enum Anchor: String, CaseIterable {
 
   var label: String {
     switch self {
-    case .topLeft: return "왼쪽 위"
-    case .top: return "위 가운데"
-    case .topRight: return "오른쪽 위"
-    case .left: return "왼쪽 가운데"
-    case .center: return "가운데"
-    case .right: return "오른쪽 가운데"
-    case .bottomLeft: return "왼쪽 아래"
-    case .bottom: return "아래 가운데"
-    case .bottomRight: return "오른쪽 아래"
+    case .topLeft: return T("왼쪽 위")
+    case .top: return T("위 가운데")
+    case .topRight: return T("오른쪽 위")
+    case .left: return T("왼쪽 가운데")
+    case .center: return T("가운데")
+    case .right: return T("오른쪽 가운데")
+    case .bottomLeft: return T("왼쪽 아래")
+    case .bottom: return T("아래 가운데")
+    case .bottomRight: return T("오른쪽 아래")
     }
   }
 
@@ -49,9 +50,9 @@ enum Theme: String, CaseIterable {
 
   var label: String {
     switch self {
-    case .system: return "시스템"
-    case .light: return "라이트"
-    case .dark: return "다크"
+    case .system: return T("시스템")
+    case .light: return T("라이트")
+    case .dark: return T("다크")
     }
   }
 }
@@ -77,15 +78,15 @@ enum Accent: String, CaseIterable {
 
   var label: String {
     switch self {
-    case .system: return "시스템"
-    case .blue: return "블루"
-    case .purple: return "퍼플"
-    case .pink: return "핑크"
-    case .red: return "레드"
-    case .orange: return "오렌지"
-    case .yellow: return "옐로"
-    case .green: return "그린"
-    case .graphite: return "그래파이트"
+    case .system: return T("시스템")
+    case .blue: return T("블루")
+    case .purple: return T("퍼플")
+    case .pink: return T("핑크")
+    case .red: return T("레드")
+    case .orange: return T("오렌지")
+    case .yellow: return T("옐로")
+    case .green: return T("그린")
+    case .graphite: return T("그래파이트")
     }
   }
 }
@@ -96,9 +97,9 @@ enum CardSize: String, CaseIterable {
 
   var label: String {
     switch self {
-    case .small: return "작게"
-    case .normal: return "보통"
-    case .large: return "크게"
+    case .small: return T("작게")
+    case .normal: return T("보통")
+    case .large: return T("크게")
     }
   }
 
@@ -118,6 +119,7 @@ final class Settings {
   var onChange: (() -> Void)?
   var onSizeChange: (() -> Void)?
   var onMenuBarChange: (() -> Void)?
+  var onLanguageChange: (() -> Void)?
 
   var size: CardSize {
     get { CardSize(rawValue: defaults.string(forKey: "cardSize") ?? "") ?? .normal }
@@ -150,6 +152,24 @@ final class Settings {
   var menuBarHidden: Bool {
     get { defaults.bool(forKey: "menuBarHidden") }
     set { defaults.set(newValue, forKey: "menuBarHidden"); onMenuBarChange?() }
+  }
+
+  /// The language every visible string is drawn in. `system` follows the Mac's own language list.
+  var language: String {
+    get { defaults.string(forKey: "language") ?? Language.system.rawValue }
+    set {
+      guard newValue != language else { return }
+      defaults.set(newValue, forKey: "language")
+      Localization.forget()
+      onLanguageChange?()
+    }
+  }
+
+  /// Whether Pounce looks for a newer published build on its own. The check only reports; installing
+  /// is still a button press in 정보.
+  var autoUpdate: Bool {
+    get { defaults.object(forKey: "autoUpdate") as? Bool ?? true }
+    set { defaults.set(newValue, forKey: "autoUpdate") }
   }
 
   /// The system sounds a card can chime with.
@@ -203,6 +223,7 @@ struct SettingsActions {
   let sendPinnedTest: () -> Void
   let dismissAll: () -> Void
   let openLog: () -> Void
+  let openAccessibility: () -> Void
   let quit: () -> Void
 }
 
@@ -266,8 +287,8 @@ final class PreviewCard: NSView {
     let titleFont = NSFont.systemFont(ofSize: u * 1.6, weight: .bold)
     let bodyFont = NSFont.systemFont(ofSize: u * 1.2, weight: .regular)
     let appStr = NSAttributedString(string: "POUNCE", attributes: [.font: appFont, .kern: 1.1])
-    let titleStr = NSAttributedString(string: "샘플 알림", attributes: [.font: titleFont])
-    let bodyStr = NSAttributedString(string: "이렇게 보입니다", attributes: [.font: bodyFont])
+    let titleStr = NSAttributedString(string: T("샘플 알림"), attributes: [.font: titleFont])
+    let bodyStr = NSAttributedString(string: T("이렇게 보입니다"), attributes: [.font: bodyFont])
     let dot = u * 0.6
     let contentH = ceil(appStr.size().height + titleStr.size().height + bodyStr.size().height) + u * 0.9
     let cardH = pad * 2 + max(iconSize, contentH)
@@ -324,10 +345,10 @@ final class PreviewCard: NSView {
     NSAttributedString(string: "POUNCE", attributes: [.font: appFont, .kern: 1.1, .foregroundColor: palette.textTertiary])
       .draw(at: NSPoint(x: textX + dot + 4, y: lineY))
     lineY -= lineGap + titleStr.size().height
-    NSAttributedString(string: "샘플 알림", attributes: [.font: titleFont, .foregroundColor: palette.text])
+    NSAttributedString(string: T("샘플 알림"), attributes: [.font: titleFont, .foregroundColor: palette.text])
       .draw(at: NSPoint(x: textX, y: lineY))
     lineY -= lineGap + bodyStr.size().height
-    NSAttributedString(string: "이렇게 보입니다", attributes: [.font: bodyFont, .foregroundColor: palette.textSecondary])
+    NSAttributedString(string: T("이렇게 보입니다"), attributes: [.font: bodyFont, .foregroundColor: palette.textSecondary])
       .draw(at: NSPoint(x: textX, y: lineY))
 
     // Countdown ring + close mark, aligned with the app-label row and kept clear of the rounded corner.
@@ -358,7 +379,8 @@ final class SettingsWindow: NSWindowController {
   private let preview = PreviewCard()
   private let screenPopup = NSPopUpButton()
   private let tabView = NSTabView()
-  private let tabPicker = NSSegmentedControl(labels: ["위치", "테마", "설정"], trackingMode: .selectOne,
+  private static let tabKeys = ["위치", "테마", "설정", "정보"]
+  private let tabPicker = NSSegmentedControl(labels: SettingsWindow.tabKeys, trackingMode: .selectOne,
                                              target: nil, action: nil)
   private var anchorRows: [NSSegmentedControl] = []
   private let anchorCaption = NSTextField(labelWithString: "")
@@ -370,9 +392,20 @@ final class SettingsWindow: NSWindowController {
                                                 target: nil, action: nil)
   private var accentControl: NSSegmentedControl!
   private let soundPopup = NSPopUpButton()
-  private let loginCheck = NSButton(checkboxWithTitle: "로그인 시 실행", target: nil, action: nil)
-  private let debugCheck = NSButton(checkboxWithTitle: "디버그 로그", target: nil, action: nil)
-  private let menuBarCheck = NSButton(checkboxWithTitle: "메뉴 막대에서 숨기기", target: nil, action: nil)
+  private let languagePopup = NSPopUpButton()
+  private let loginCheck = NSButton(checkboxWithTitle: T("로그인 시 실행"), target: nil, action: nil)
+  private let debugCheck = NSButton(checkboxWithTitle: T("디버그 로그"), target: nil, action: nil)
+  private let menuBarCheck = NSButton(checkboxWithTitle: T("메뉴 막대에서 숨기기"), target: nil, action: nil)
+  private let updateCheck = NSButton(checkboxWithTitle: T("새 버전 자동 확인"), target: nil, action: nil)
+  private var tabHeight: NSLayoutConstraint!
+  private let trustLabel = NSTextField(labelWithString: "")
+  private var trustTimer: Timer?
+  private let updateStatus = NSTextField(labelWithString: "")
+  private var updateButton: NSButton!
+  /// A published build newer than this one, found by the last check; the button then installs it.
+  private var pendingRelease: Release?
+  /// Where to send the user when installing in place is not possible.
+  private var releasePage: URL?
 
   init(actions: SettingsActions) {
     self.actions = actions
@@ -389,9 +422,9 @@ final class SettingsWindow: NSWindowController {
     super.init(window: window)
     let form = buildForm()
     window.contentView = form
+    tabHeight.constant = selectedTabHeight()
     form.layoutSubtreeIfNeeded()
-    let size = form.fittingSize
-    window.setContentSize(NSSize(width: 460, height: max(size.height, 560)))
+    window.setContentSize(NSSize(width: 460, height: form.fittingSize.height))
     window.center()
     NotificationCenter.default.addObserver(self, selector: #selector(refresh),
                                            name: NSApplication.didChangeScreenParametersNotification, object: nil)
@@ -401,6 +434,13 @@ final class SettingsWindow: NSWindowController {
 
   func show() {
     refresh()
+    fitToTab(animated: false)
+    // While the window is up the grant can change under us (the user turning it on in System Settings).
+    trustTimer?.invalidate()
+    trustTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] t in
+      guard let self, self.window?.isVisible == true else { t.invalidate(); return }
+      self.refreshTrust()
+    }
     NSApp.activate(ignoringOtherApps: true)
     window?.makeKeyAndOrderFront(nil)
     window?.orderFrontRegardless()
@@ -409,6 +449,7 @@ final class SettingsWindow: NSWindowController {
   // MARK: form
 
   private func buildForm() -> NSView {
+    for (index, key) in Self.tabKeys.enumerated() { tabPicker.setLabel(T(key), forSegment: index) }
     screenPopup.target = self
     screenPopup.action = #selector(screenChanged)
     sizeControl.target = self
@@ -427,7 +468,15 @@ final class SettingsWindow: NSWindowController {
     accentControl = accentPicker()
     soundPopup.target = self
     soundPopup.action = #selector(soundChanged)
-    soundPopup.addItem(withTitle: "없음")
+    languagePopup.target = self
+    languagePopup.action = #selector(languageChanged)
+    for language in Language.allCases {
+      languagePopup.addItem(withTitle: language.label)
+      languagePopup.lastItem?.representedObject = language.rawValue
+    }
+    // The Mac's own choice sits apart from the list of languages it may resolve to.
+    languagePopup.menu?.insertItem(.separator(), at: 1)
+    soundPopup.addItem(withTitle: T("없음"))
     soundPopup.lastItem?.representedObject = ""
     for name in Settings.sounds {
       soundPopup.addItem(withTitle: name)
@@ -439,6 +488,8 @@ final class SettingsWindow: NSWindowController {
     debugCheck.action = #selector(debugChanged)
     menuBarCheck.target = self
     menuBarCheck.action = #selector(menuBarChanged)
+    updateCheck.target = self
+    updateCheck.action = #selector(autoUpdateChanged)
     screenPopup.setContentHuggingPriority(.init(1), for: .horizontal)
     durationSlider.setContentHuggingPriority(.init(1), for: .horizontal)
 
@@ -455,13 +506,21 @@ final class SettingsWindow: NSWindowController {
     duration.distribution = .fill
     durationSlider.setContentHuggingPriority(.init(1), for: .horizontal)
     durationLabel.setContentHuggingPriority(.required, for: .horizontal)
-    let tests = NSStackView(views: [button("보내기", #selector(sendTest)), button("5회", #selector(sendFiveTests)),
-                                    button("고정", #selector(sendPinnedTest))])
+    let tests = NSStackView(views: [button(T("보내기"), #selector(sendTest)), button(T("5회"), #selector(sendFiveTests)),
+                                    button(T("고정"), #selector(sendPinnedTest))])
     tests.distribution = .fillEqually
     tests.spacing = 6
-    let tools = NSStackView(views: [button("로그 열기", #selector(openLog)), button("Pounce 종료", #selector(quitApp))])
+    let tools = NSStackView(views: [button(T("로그 열기"), #selector(openLog)), button(T("Pounce 종료"), #selector(quitApp))])
     tools.distribution = .fillEqually
     tools.spacing = 6
+
+    // Accessibility is what lets Pounce hide the system banner. Replacing the app resigns it and macOS
+    // drops the grant, so the state belongs on screen next to the way to fix it.
+    trustLabel.font = .systemFont(ofSize: 11)
+    trustLabel.setContentHuggingPriority(.init(1), for: .horizontal)
+    let trust = NSStackView(views: [trustLabel, button(T("접근성 열기"), #selector(openAccessibility))])
+    trust.distribution = .fill
+    trust.spacing = 8
 
     // Every control spans the full box width, with its label on top. No empty column on either side.
     tabView.translatesAutoresizingMaskIntoConstraints = false
@@ -469,26 +528,36 @@ final class SettingsWindow: NSWindowController {
     tabPicker.target = self
     tabPicker.action = #selector(tabChanged)
     tabPicker.selectedSegment = 0
-    tabView.addTabViewItem(tab("위치", tabContent([
-      field("모니터", screenPopup),
-      field("위치", anchorGrid()),
-      field(nil, button("원래 위치로", #selector(resetPosition))),
-      field("크기", sizeControl),
-      field("지속 시간", duration),
+    tabView.addTabViewItem(tab(T("위치"), tabContent([
+      field(T("모니터"), screenPopup),
+      field(T("위치"), anchorGrid()),
+      field(nil, button(T("원래 위치로"), #selector(resetPosition))),
+      field(T("크기"), sizeControl),
+      field(T("지속 시간"), duration),
     ])))
-    tabView.addTabViewItem(tab("테마", tabContent([
-      field("테마", themeControl),
-      field("강조색", accentControl),
-      field("소리", soundPopup),
+    tabView.addTabViewItem(tab(T("테마"), tabContent([
+      field(T("테마"), themeControl),
+      field(T("강조색"), accentControl),
+      field(T("소리"), soundPopup),
     ])))
-    tabView.addTabViewItem(tab("설정", tabContent([
-      field("알람 테스트", tests),
-      field(nil, button("모든 알람 닫기", #selector(dismissAll))),
+    tabView.addTabViewItem(tab(T("설정"), tabContent([
+      field(T("언어"), languagePopup),
+      field(T("알람 테스트"), tests),
+      field(nil, button(T("모든 알람 닫기"), #selector(dismissAll))),
       field(nil, loginCheck),
       field(nil, menuBarField()),
+      field(nil, updateCheck),
       field(nil, debugCheck),
+      field(T("접근성 권한"), trust),
       field(nil, tools),
-    ], footer: aboutFooter())))
+    ])))
+    tabView.addTabViewItem(tab(T("정보"), aboutTab()))
+    // Each tab is exactly as tall as its own contents; the window follows when you switch.
+    tabHeight = tabView.heightAnchor.constraint(equalToConstant: 0)
+    // Just under required: while the window animates to a new height the box may lag a frame behind,
+    // and it should bend there rather than snap the window to its new size ahead of the animation.
+    tabHeight.priority = .init(999)
+    tabHeight.isActive = true
 
     // Window background: a soft material for that shipped-app depth.
     let backing = NSVisualEffectView()
@@ -509,8 +578,7 @@ final class SettingsWindow: NSWindowController {
       tabPicker.bottomAnchor.constraint(equalTo: picker.bottomAnchor),
     ])
 
-    let credit = makerCredit()
-    let column = NSStackView(views: [preview, picker, tabView, credit])
+    let column = NSStackView(views: [preview, picker, tabView])
     column.orientation = .vertical
     column.alignment = .width
     column.spacing = 12
@@ -529,8 +597,6 @@ final class SettingsWindow: NSWindowController {
       picker.trailingAnchor.constraint(equalTo: column.trailingAnchor),
       tabView.leadingAnchor.constraint(equalTo: column.leadingAnchor),
       tabView.trailingAnchor.constraint(equalTo: column.trailingAnchor),
-      credit.leadingAnchor.constraint(equalTo: column.leadingAnchor),
-      credit.trailingAnchor.constraint(equalTo: column.trailingAnchor),
     ])
     return backing
   }
@@ -573,7 +639,7 @@ final class SettingsWindow: NSWindowController {
 
   /// The hide checkbox with the way back right under it: a hidden paw leaves no other route to this window.
   private func menuBarField() -> NSView {
-    let hint = NSTextField(labelWithString: "숨긴 뒤에는 Pounce 를 다시 실행하면 이 창이 열립니다.")
+    let hint = NSTextField(labelWithString: T("숨긴 뒤에는 Pounce 를 다시 실행하면 이 창이 열립니다."))
     hint.font = .systemFont(ofSize: 11)
     hint.textColor = .tertiaryLabelColor
     let v = NSStackView(views: [menuBarCheck, hint])
@@ -584,32 +650,104 @@ final class SettingsWindow: NSWindowController {
   }
 
   /// The centred about block: app icon, name, version, then the maker's avatar and name.
-  private func aboutFooter() -> NSView {
+  /// The 정보 tab: what this build is, and whether a newer one has been published.
+  private func aboutTab() -> NSView {
     let icon = NSImageView()
     icon.image = NSApp.applicationIconImage
     icon.translatesAutoresizingMaskIntoConstraints = false
-    icon.widthAnchor.constraint(equalToConstant: 52).isActive = true
-    icon.heightAnchor.constraint(equalToConstant: 52).isActive = true
+    icon.widthAnchor.constraint(equalToConstant: 64).isActive = true
+    icon.heightAnchor.constraint(equalToConstant: 64).isActive = true
 
     let appName = NSTextField(labelWithString: "Pounce")
     appName.font = .systemFont(ofSize: 15, weight: .semibold)
     appName.alignment = .center
 
-    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
-    let ver = NSTextField(labelWithString: "버전 \(version)")
+    let ver = NSTextField(labelWithString: T("버전 %@", Updater.currentVersion))
     ver.font = .systemFont(ofSize: 11)
     ver.textColor = .secondaryLabelColor
     ver.alignment = .center
 
-    let stack = NSStackView(views: [icon, appName, ver])
+    updateButton = button(T("업데이트 확인"), #selector(checkForUpdate))
+    updateButton.setContentHuggingPriority(.required, for: .horizontal)
+    updateStatus.font = .systemFont(ofSize: 11)
+    updateStatus.textColor = .secondaryLabelColor
+    updateStatus.alignment = .center
+
+    let credit = makerCredit()
+    let stack = NSStackView(views: [icon, appName, ver, updateButton, updateStatus, credit])
     stack.orientation = .vertical
     stack.alignment = .centerX
     stack.spacing = 3
-    stack.setCustomSpacing(6, after: icon)
-    return stack
+    stack.setCustomSpacing(8, after: icon)
+    stack.setCustomSpacing(16, after: ver)
+    stack.setCustomSpacing(8, after: updateButton)
+    stack.setCustomSpacing(18, after: updateStatus)
+    stack.translatesAutoresizingMaskIntoConstraints = false
+
+    let container = NSView()
+    container.addSubview(stack)
+    NSLayoutConstraint.activate([
+      stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+      stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 28),
+      stack.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -16),
+    ])
+    return container
   }
 
-  /// The maker credit: a small round avatar and the name on one line, for the bottom-right corner.
+  @objc private func checkForUpdate() {
+    if let page = releasePage { NSWorkspace.shared.open(page); return }
+    if let release = pendingRelease { install(release); return }
+    updateButton.isEnabled = false
+    updateStatus.textColor = .secondaryLabelColor
+    updateStatus.stringValue = T("확인 중…")
+    Updater.shared.check { [weak self] result in
+      guard let self else { return }
+      self.updateButton.isEnabled = true
+      switch result {
+      case .failure(let error):
+        self.updateStatus.stringValue = error.localizedDescription
+      case .success(let release):
+        guard release.isNewer else {
+          self.updateStatus.stringValue = T("최신 버전입니다")
+          return
+        }
+        self.pendingRelease = release
+        self.updateStatus.stringValue = T("새 버전 %@", release.version)
+        self.updateStatus.textColor = .controlAccentColor
+        // A release without a zip to download can only be opened in the browser.
+        if release.zip == nil {
+          self.releasePage = release.page
+          self.updateButton.title = T("릴리스 열기")
+        } else {
+          self.updateButton.title = T("업데이트 설치")
+        }
+      }
+    }
+  }
+
+  private func install(_ release: Release) {
+    updateButton.isEnabled = false
+    updateStatus.textColor = .secondaryLabelColor
+    Updater.shared.install(release, progress: { [weak self] step in
+      self?.updateStatus.stringValue = step
+    }, done: { [weak self] result in
+      guard let self else { return }
+      switch result {
+      case .success:
+        self.updateStatus.stringValue = T("설치 완료 · 다시 시작합니다")
+        Updater.shared.relaunch()
+      case .failure(let error):
+        // Whatever went wrong, the release page is still a way to get the build by hand.
+        self.updateButton.isEnabled = true
+        self.updateButton.title = T("릴리스 열기")
+        self.releasePage = release.page
+        self.updateStatus.stringValue = error.localizedDescription
+        self.updateStatus.textColor = .systemRed
+      }
+    })
+  }
+
+  /// The maker credit: a small round avatar and the name on one line, at the foot of 정보.
   private func makerCredit() -> NSView {
     let avatar = NSImageView()
     avatar.image = Self.circularAvatar(diameter: 18)
@@ -619,18 +757,11 @@ final class SettingsWindow: NSWindowController {
     let name = NSTextField(labelWithString: "Tungsten")
     name.font = .systemFont(ofSize: 10, weight: .medium)
     name.textColor = .tertiaryLabelColor
-    let row = NSStackView(views: [spacerView(), avatar, name])
+    let row = NSStackView(views: [avatar, name])
     row.orientation = .horizontal
     row.alignment = .centerY
     row.spacing = 5
     return row
-  }
-
-  private func spacerView() -> NSView {
-    let v = NSView()
-    v.setContentHuggingPriority(.init(1), for: .horizontal)
-    v.setContentCompressionResistancePriority(.init(1), for: .horizontal)
-    return v
   }
 
 
@@ -757,7 +888,7 @@ final class SettingsWindow: NSWindowController {
     anchorCaption.stringValue = anchor.label
     sizeControl.selectedSegment = CardSize.allCases.firstIndex(of: settings.size) ?? 1
     durationSlider.doubleValue = settings.duration
-    durationLabel.stringValue = "\(Int(settings.duration.rounded()))초"
+    durationLabel.stringValue = T("%d초", Int(settings.duration.rounded()))
     themeControl.selectedSegment = Theme.allCases.firstIndex(of: settings.theme) ?? 0
     accentControl.selectedSegment = Accent.allCases.firstIndex(of: settings.accent) ?? 0
     soundPopup.selectItem(at: max(0, ([""] + Settings.sounds).firstIndex(of: settings.sound) ?? 0))
@@ -765,6 +896,9 @@ final class SettingsWindow: NSWindowController {
     loginCheck.state = SMAppService.mainApp.status == .enabled ? .on : .off
     debugCheck.state = Log.shared.debugEnabled ? .on : .off
     menuBarCheck.state = settings.menuBarHidden ? .on : .off
+    updateCheck.state = settings.autoUpdate ? .on : .off
+    languagePopup.selectItem(at: max(0, languagePopup.itemArray.firstIndex { $0.representedObject as? String == settings.language } ?? 0))
+    refreshTrust()
     preview.apply()
   }
 
@@ -772,6 +906,39 @@ final class SettingsWindow: NSWindowController {
 
   @objc private func tabChanged() {
     tabView.selectTabViewItem(at: tabPicker.selectedSegment)
+    fitToTab()
+  }
+
+  /// The height the selected tab's own contents ask for, plus whatever the box itself takes.
+  private func selectedTabHeight() -> CGFloat {
+    guard let view = tabView.selectedTabViewItem?.view else { return tabHeight.constant }
+    let inset = max(0, tabView.bounds.height - tabView.contentRect.height)
+    return view.fittingSize.height + inset
+  }
+
+  /// Grows or shrinks the window to the selected tab, keeping the title bar where it is.
+  /// The frame and the box move as one animation; changing the constraint first would make the
+  /// window jump to the taller size before the animation had a chance to run.
+  private func fitToTab(animated: Bool = true) {
+    guard let window else { return }
+    let target = selectedTabHeight()
+    let delta = target - tabHeight.constant
+    guard abs(delta) > 0.5 else { return }
+    var frame = window.frame
+    frame.size.height += delta
+    frame.origin.y -= delta
+    guard animated else {
+      tabHeight.constant = target
+      window.setFrame(frame, display: true)
+      return
+    }
+    NSAnimationContext.runAnimationGroup { context in
+      context.duration = window.animationResizeTime(frame)
+      context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+      context.allowsImplicitAnimation = true
+      window.animator().setFrame(frame, display: true)
+      tabHeight.animator().constant = target
+    }
   }
 
   @objc private func screenChanged() {
@@ -794,7 +961,7 @@ final class SettingsWindow: NSWindowController {
   @objc private func durationChanged() {
     let seconds = durationSlider.doubleValue.rounded()
     settings.duration = seconds
-    durationLabel.stringValue = "\(Int(seconds))초"
+    durationLabel.stringValue = T("%d초", Int(seconds))
   }
 
   @objc private func themeChanged() {
@@ -829,6 +996,22 @@ final class SettingsWindow: NSWindowController {
   }
 
   @objc private func menuBarChanged() { settings.menuBarHidden = menuBarCheck.state == .on }
+  @objc private func autoUpdateChanged() { settings.autoUpdate = updateCheck.state == .on }
+
+  @objc private func languageChanged() {
+    guard let code = languagePopup.selectedItem?.representedObject as? String else { return }
+    settings.language = code
+  }
+
+  /// Which tab is open, so a rebuilt window can come back to the same place.
+  var selectedTab: Int { max(0, tabPicker.selectedSegment) }
+
+  func select(tab index: Int) {
+    guard index >= 0, index < tabView.numberOfTabViewItems else { return }
+    tabPicker.selectedSegment = index
+    tabView.selectTabViewItem(at: index)
+    fitToTab(animated: false)
+  }
   @objc private func quitApp() { actions.quit() }
 
   @objc private func sendTest() { actions.sendTest() }
@@ -836,4 +1019,11 @@ final class SettingsWindow: NSWindowController {
   @objc private func sendPinnedTest() { actions.sendPinnedTest() }
   @objc private func dismissAll() { actions.dismissAll() }
   @objc private func openLog() { actions.openLog() }
+  @objc private func openAccessibility() { actions.openAccessibility() }
+
+  private func refreshTrust() {
+    let trusted = AXIsProcessTrusted()
+    trustLabel.stringValue = trusted ? T("허용됨") : T("허용 안 됨 · 켜면 바로 붙습니다")
+    trustLabel.textColor = trusted ? .secondaryLabelColor : .systemRed
+  }
 }

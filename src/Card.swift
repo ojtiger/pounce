@@ -178,6 +178,7 @@ final class NoticeGroup {
 
   var latest: Notice { notices[0] }
   var isAlert: Bool { notices.contains { $0.isAlert } }
+  var isPinned: Bool { notices.contains { $0.pinned } }
   var isEmpty: Bool { notices.isEmpty }
 
   func add(_ notice: Notice) { notices.insert(notice, at: 0) }
@@ -441,7 +442,7 @@ final class CardPanel: NSPanel {
       column.addArrangedSubview(historyStack)
       let more = group.notices.count - 1 - history.count
       if more > 0 {
-        let rest = NSTextField(labelWithString: "그리고 \(more)개 더")
+        let rest = NSTextField(labelWithString: T("그리고 %d개 더", more))
         rest.font = .systemFont(ofSize: 12 * Style.scale, weight: .medium)
         rest.textColor = palette.textTertiary
         column.addArrangedSubview(rest)
@@ -466,7 +467,7 @@ final class CardPanel: NSPanel {
   /// made once, kept through rebuilds, always above whatever the content lays out.
   private func installCorner() {
     if closeButton == nil {
-      let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "닫기")!,
+      let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: T("닫기"))!,
                            target: self, action: #selector(closeClicked))
       close.isBordered = false
       close.contentTintColor = palette.text.withAlphaComponent(0.38)
@@ -641,7 +642,7 @@ final class CardPanel: NSPanel {
   /// instead; only a persistent alert follows the system's, unless the user is looking at it.
   func originalGone() {
     logD("card \(group.app): original gone, alert=\(group.isAlert)")
-    guard group.isAlert else { return }
+    guard group.isAlert, !group.isPinned else { return }
     if isHovered { dismissWhenMouseLeaves = true } else { dismiss() }
   }
 

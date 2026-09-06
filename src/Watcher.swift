@@ -7,7 +7,7 @@ struct Notice {
   let title: String
   let subtitle: String
   let body: String
-  let isAlert: Bool
+  var isAlert: Bool
   /// The hidden system banner.
   let element: AXUIElement?
   /// Notification UUID when known.
@@ -18,6 +18,9 @@ struct Notice {
   /// The display the banner appeared on (a CGDirectDisplayID); 0 when unknown. The card centres here,
   /// so it lands where the notification was, whatever the display arrangement or resolution.
   var screenNumber: UInt32 = 0
+  /// Stays until the user closes it, whatever the system banner behind it does. Only the pinned test
+  /// sets this: it goes out as a real notification, and the system may still show it as a plain banner.
+  var pinned = false
   /// Relayed from the mirrored iPhone. A different source than the same app on this Mac, so it gets its
   /// own card rather than merging with the Mac app's notifications.
   var fromIPhone = false
@@ -34,6 +37,10 @@ private enum K {
   static let maxNodes = 4000
   /// How far above the primary display the Notification Center window is parked.
   static let parkOffset: CGFloat = 5000
+  /// How long the window stays parked after its last banner is gone from the tree.
+  /// The system keeps drawing the banner's fade-out for a few frames after that, so putting the
+  /// window back right away shows the tail of the animation in the corner.
+  static let emptyGrace: TimeInterval = 0.7
 }
 
 private enum WindowKind {
@@ -73,6 +80,8 @@ final class Watcher {
   private var observedWindows = Set<AXUIElement>()
   private var parkedOrigins = [AXUIElement: CGPoint]()
   private var releasedWindows = Set<AXUIElement>()
+  /// When each parked window was first seen without banners; the grace period runs from here.
+  private var emptySince = [AXUIElement: Date]()
   private var loggedSkips = Set<AXUIElement>()
   private var seenKeys = [String: Date]()
   private var liveKeys = Set<String>()
@@ -125,6 +134,7 @@ final class Watcher {
     appElement = nil
     observedWindows.removeAll()
     loggedSkips.removeAll()
+    emptySince.removeAll()
     releasedWindows.removeAll()
     seenKeys.removeAll()
     liveKeys.removeAll()
@@ -167,6 +177,7 @@ final class Watcher {
       logD("restore all result=\(r.name)")
     }
     parkedOrigins.removeAll()
+    emptySince.removeAll()
   }
 
   /// Put the window holding this banner back on screen and stop hiding it until it empties.
@@ -174,6 +185,7 @@ final class Watcher {
   func release(_ banner: AXUIElement) {
     for w in Array(parkedOrigins.keys) {
       releasedWindows.insert(w)
+      emptySince.removeValue(forKey: w)
       restore(w, reason: "released")
     }
   }
@@ -185,6 +197,7 @@ final class Watcher {
     if notification == kAXWindowCreatedNotification as String { observe(window: element) }
     if notification == kAXUIElementDestroyedNotification as String {
       releasedWindows.remove(element)
+      emptySince.removeValue(forKey: element)
       if parkedOrigins.removeValue(forKey: element) != nil { observedWindows.remove(element) }
     }
     scan()
@@ -222,8 +235,17 @@ final class Watcher {
         if loggedSkips.insert(w).inserted { logD("skip window: \(why)") }
       case .empty:
         releasedWindows.remove(w)
-        restore(w, reason: "no banner")
+        // Accessibility drops the banner before its fade-out has finished drawing, so hold the
+        // window off-screen a moment longer and let the animation play out where it cannot be seen.
+        if parkedOrigins[w] == nil { break }
+        let emptyAt = emptySince[w] ?? Date()
+        emptySince[w] = emptyAt
+        if Date().timeIntervalSince(emptyAt) >= K.emptyGrace {
+          emptySince.removeValue(forKey: w)
+          restore(w, reason: "no banner")
+        }
       case .banners(let banners):
+        emptySince.removeValue(forKey: w)
         if banners.contains(where: isPermissionPrompt) {
           // macOS asking "‘App’ 알림 허용?" lives here too. It must stay where its buttons can be pressed.
           releasedWindows.remove(w)

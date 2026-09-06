@@ -33,6 +33,18 @@ identity_for_team() {
   return 1
 }
 
+# 버전은 빌드 전에 파일에 박힌다. 중간에 죽으면 그대로 남아 다음 실행이 꼬이므로 되돌린다.
+bumped=false
+committed=false
+docs_clean=false
+restore_version() {
+  local code=$?
+  if [[ $code -ne 0 && "$bumped" == true && "$committed" == false && "$docs_clean" == true ]]; then
+    git checkout -- "$PLIST" docs 2>/dev/null && warn "버전을 $current 로 되돌렸습니다."
+  fi
+}
+trap restore_version EXIT
+
 # ── 1. 지금 상태
 current=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$PLIST")
 branch=$(git rev-parse --abbrev-ref HEAD)
@@ -46,6 +58,8 @@ behind=$(git rev-list --count "$branch"..origin/"$branch" 2>/dev/null || echo 0)
 [[ "$ahead" == "0" ]] || warn "push 안 된 커밋 $ahead 개 — 이번에 함께 올라갑니다."
 dirty=$(git status --porcelain)
 [[ -z "$dirty" ]] || { warn "커밋 안 된 변경:"; git status --short; }
+# 버전이 들어가는 파일들이 원래 깨끗했다면, 실패했을 때 그것만 되돌려도 안전하다.
+[[ -z "$(git status --porcelain -- "$PLIST" docs)" ]] && docs_clean=true
 
 # ── 2. 새 버전
 IFS=. read -r ma mi pa <<<"$current"
@@ -77,11 +91,12 @@ step "$current → $next"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $next" "$PLIST" 2>/dev/null || true
 sed -i '' "s/^VERSION = \".*\"/VERSION = \"$next\"/" docs/build.py
 python3 docs/build.py >/dev/null
+bumped=true
 ok "앱과 소개 페이지에 $next 반영"
 
-IDENTITY_ARG=()
+IDENTITY_ARG=""
 if hash=$(identity_for_team "$RELEASE_TEAM"); then
-  IDENTITY_ARG=(IDENTITY="$hash")
+  IDENTITY_ARG="IDENTITY=$hash"
   ok "서명 인증서: 팀 $RELEASE_TEAM (${hash:0:8}…)"
 else
   warn "팀 $RELEASE_TEAM 인증서가 이 맥에 없습니다. Xcode > Settings > Accounts 에서 그 팀으로"
@@ -89,7 +104,8 @@ else
 fi
 
 step "빌드 (make $target)"
-make "$target" "${IDENTITY_ARG[@]}"
+# shellcheck disable=SC2086  # 해시에는 공백이 없다
+make "$target" $IDENTITY_ARG
 ZIP="dist/Pounce-$next.zip"
 [[ -f "$ZIP" ]] || die "$ZIP 이 없습니다."
 
@@ -110,6 +126,7 @@ ok "$ZIP  $(du -h "$ZIP" | cut -f1)  sha256 ${SHA:0:12}…"
 step "커밋 · 태그 · push"
 git add -A
 git commit -q -m "$next"
+committed=true
 ask "v$next 로 태그하고 push 할까요? (여기부터 되돌리기 어렵습니다)" || die "중단. 커밋은 남아 있습니다."
 git tag "v$next"
 git push -q && git push -q --tags

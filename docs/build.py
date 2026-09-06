@@ -14,7 +14,7 @@ VERSION = "0.3.0"
 
 LANGS = {
   "ko": {
-    "dir": "", "hreflang": "ko", "name": "한국어",
+    "dir": "", "hreflang": "ko", "name": "한국어", "shot": "screenshot.png",
     "title": "맥 알림창 위치 변경 — Pounce",
     "desc": "macOS 알림창이 뜨는 위치를 화면 가운데로 옮기는 맥 앱. 우측 상단 알림 배너를 원하는 자리로 바꿉니다. 무료, 오픈소스, macOS 14 이상.",
     "ogdesc": "macOS 알림 배너를 화면 가운데로 옮기는 맥 앱. 무료, 오픈소스.",
@@ -38,7 +38,7 @@ LANGS = {
     ],
   },
   "en": {
-    "dir": "en/", "hreflang": "en", "name": "English",
+    "dir": "en/", "hreflang": "en", "name": "English", "shot": "screenshot-en.png", "og": "og-en.png",
     "title": "Move macOS notifications where you want — Pounce",
     "desc": "A Mac app that moves macOS notification banners from the top-right corner to the center of your screen, or any of nine spots. Free, open source, macOS 14 and later.",
     "ogdesc": "A Mac app that moves macOS notification banners to the center of your screen. Free and open source.",
@@ -62,7 +62,7 @@ LANGS = {
     ],
   },
   "ja": {
-    "dir": "ja/", "hreflang": "ja", "name": "日本語",
+    "dir": "ja/", "hreflang": "ja", "name": "日本語", "shot": "screenshot-ja.png",
     "title": "Mac の通知の位置を変更 — Pounce",
     "desc": "Mac の通知バナーを右上から画面中央へ、または好きな位置へ移して表示する Mac アプリ。無料、オープンソース、macOS 14 以降。",
     "ogdesc": "Mac の通知バナーを画面中央へ移して表示する Mac アプリ。無料、オープンソース。",
@@ -86,7 +86,7 @@ LANGS = {
     ],
   },
   "zh": {
-    "dir": "zh/", "hreflang": "zh-Hans", "name": "简体中文",
+    "dir": "zh/", "hreflang": "zh-Hans", "name": "简体中文", "shot": "screenshot-zh.png",
     "title": "更改 Mac 通知位置 — Pounce",
     "desc": "把 Mac 通知横幅从右上角移到屏幕中央，或九个位置中的任意一个的 Mac 应用。免费、开源，支持 macOS 14 及以上。",
     "ogdesc": "把 Mac 通知横幅移到屏幕中央的 Mac 应用。免费、开源。",
@@ -129,9 +129,9 @@ STYLE = """  :root {
   }
   .wrap { max-width: 720px; margin: 0 auto; padding: 0 22px; }
   .group { padding: 34px 0; border-top: 1px solid var(--line); }
-  .group:first-child { border-top: 0; padding: 72px 0 34px; }
+  .group:first-child { border-top: 0; padding: 34px 0; }
   .group:last-of-type { padding-bottom: 64px; }
-  .langs { display: flex; gap: 14px; font-size: 12px; padding: 22px 0 0; }
+  .langs { display: flex; gap: 14px; font-size: 12px; padding: 20px 0 0; }
   .langs a { color: var(--dim); text-decoration: none; }
   .langs a:hover { color: var(--ink); }
   .langs .here { color: var(--ink); font-weight: 600; }
@@ -201,12 +201,13 @@ def page(code, L):
         '      "acceptedAnswer": { "@type": "Answer", "text": %s } }' % (json_str(q), json_str(a))
         for q, a in L["faq"])
     return TEMPLATE % {
+        "og": L.get("og", "og.png"),
         "lang": L["hreflang"], "title": L["title"], "desc": L["desc"], "ogdesc": L["ogdesc"],
         "url": url, "site": SITE, "up": up, "alternates": alternates, "switcher": switcher,
         "h1": L["h1"], "lede": L["lede"],
         "l0": L["labels"][0], "l1": L["labels"][1], "l2": L["labels"][2], "l3": L["labels"][3],
         "brew": BREW, "copy": L["copy"], "copied": L["copied"], "copyAria": L["copyAria"],
-        "download": L["download"], "latest": LATEST, "alt": L["alt"],
+        "download": L["download"], "latest": LATEST, "alt": L["alt"], "shot": L["shot"],
         "schemaName": L["schemaName"], "schemaDesc": L["schemaDesc"], "version": VERSION,
         "faq": faq_html, "faqLd": faq_ld, "style": STYLE, "script": SCRIPT,
         "copyJs": json_str(L["copy"]), "copiedJs": json_str(L["copied"]),
@@ -231,7 +232,7 @@ TEMPLATE = """<!doctype html>
 <meta property="og:title" content="%(title)s">
 <meta property="og:description" content="%(ogdesc)s">
 <meta property="og:url" content="%(url)s">
-<meta property="og:image" content="%(site)sog.png">
+<meta property="og:image" content="%(site)s%(og)s">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="%(up)sfavicon.png">
 <style>
@@ -240,6 +241,10 @@ TEMPLATE = """<!doctype html>
 </head>
 <body>
 <div class="wrap">
+
+<nav class="langs">
+  %(switcher)s
+</nav>
 
 <section class="group">
   <p class="label">%(l0)s</p>
@@ -260,17 +265,13 @@ TEMPLATE = """<!doctype html>
 
 <section class="group">
   <h2 class="label">%(l2)s</h2>
-  <img class="shot" src="%(up)sscreenshot.png" width="1144" height="1568" alt="%(alt)s">
+  <img class="shot" src="%(up)s%(shot)s" width="1144" height="1568" alt="%(alt)s">
 </section>
 
 <section class="group">
   <h2 class="label">%(l3)s</h2>
 
-%(faq)s
-  <nav class="langs">
-    %(switcher)s
-  </nav>
-</section>
+%(faq)s</section>
 
 </div>
 

@@ -37,9 +37,9 @@
   }
   .wrap { max-width: 720px; margin: 0 auto; padding: 0 22px; }
   .group { padding: 34px 0; border-top: 1px solid var(--line); }
-  .group:first-child { border-top: 0; padding: 72px 0 34px; }
+  .group:first-child { border-top: 0; padding: 34px 0; }
   .group:last-of-type { padding-bottom: 64px; }
-  .langs { display: flex; gap: 14px; font-size: 12px; padding: 22px 0 0; }
+  .langs { display: flex; gap: 14px; font-size: 12px; padding: 20px 0 0; }
   .langs a { color: var(--dim); text-decoration: none; }
   .langs a:hover { color: var(--ink); }
   .langs .here { color: var(--ink); font-weight: 600; }
@@ -78,6 +78,13 @@
 <body>
 <div class="wrap">
 
+<nav class="langs">
+  <a href="https://ojtiger.github.io/pounce/">한국어</a>
+    <a href="https://ojtiger.github.io/pounce/en/">English</a>
+    <a href="https://ojtiger.github.io/pounce/ja/">日本語</a>
+    <span class="here">简体中文</span>
+</nav>
+
 <section class="group">
   <p class="label">关于</p>
   <div class="mark"><img src="../icon.png" alt="Pounce"><span>Pounce</span></div>
@@ -97,7 +104,7 @@
 
 <section class="group">
   <h2 class="label">截图</h2>
-  <img class="shot" src="../screenshot.png" width="1144" height="1568" alt="Pounce 设置窗口。预览中通知卡片显示在屏幕中央，下方是从九个位置中选择的网格。">
+  <img class="shot" src="../screenshot-zh.png" width="1144" height="1568" alt="Pounce 设置窗口。预览中通知卡片显示在屏幕中央，下方是从九个位置中选择的网格。">
 </section>
 
 <section class="group">
@@ -114,13 +121,6 @@
 
   <h3>哪些 Mac 能用？</h3>
   <p>macOS 14 Sonoma 及以上，Apple 芯片和 Intel 都可以。macOS 26 使用系统玻璃效果，更早的版本使用毛玻璃。</p>
-
-  <nav class="langs">
-    <a href="https://ojtiger.github.io/pounce/">한국어</a>
-    <a href="https://ojtiger.github.io/pounce/en/">English</a>
-    <a href="https://ojtiger.github.io/pounce/ja/">日本語</a>
-    <span class="here">简体中文</span>
-  </nav>
 </section>
 
 </div>

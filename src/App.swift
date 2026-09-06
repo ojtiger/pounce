@@ -41,12 +41,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       // something the system draws inside the banner itself — a reply field, a menu — and the banner
       // stays alive holding it. Whether the banner is still there a moment later tells us which
       // happened, and if it is, it comes into view where the card was standing.
+      // A button that finished the notification off leaves nothing behind. One that opened something
+      // inside the banner — a reply field, a menu — leaves the banner alive holding it, and that has
+      // to be brought where the card was for the user to reach it.
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-        guard let self else { return }
-        guard element.role != nil else {
-          self.rememberPlainAction(app: notice.app, label: action.label)
-          return
-        }
+        guard let self, element.role != nil else { return }
         self.watcher.reveal(element, in: card)
       }
     },
@@ -73,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     sendPinnedTest: { [weak self] in self?.sendPinnedTest() },
     sendActionTest: { [weak self] in self?.sendActionTest() },
     sendPhotoTest: { [weak self] in self?.sendPhotoTest() },
+    sendCallTest: { [weak self] in self?.sendCallTest() },
     dismissAll: { [weak self] in self?.dismissAll() },
     openLog: { [weak self] in self?.openLog() },
     openAccessibility: { [weak self] in self?.openAccessibility() },
@@ -185,37 +185,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            width: rect.width, height: rect.height)
   }
 
-  // MARK: buttons that need no button
-
-  /// Buttons whose press simply finished the notification off, as "app|label". Clicking the card
-  /// already does that, so once a button is known to be one of those it stops being drawn: the card
-  /// keeps only the buttons that open something of their own, like a reply field.
-  ///
-  /// Learned rather than guessed. Accessibility hands every button over in the same shape —
-  /// "Name:답장\nTarget:0x0\nSelector:(null)" — with nothing to tell them apart, and the names
-  /// themselves are whatever the app chose, in whatever language.
-  private var plainActions: Set<String> {
-    get { Set(UserDefaults.standard.stringArray(forKey: "plainActions") ?? []) }
-    set { UserDefaults.standard.set(Array(newValue), forKey: "plainActions") }
-  }
-
-  private func plainKey(_ app: String, _ label: String) -> String { "\(app)|\(label)" }
-
-  private func rememberPlainAction(app: String, label: String) {
-    var known = plainActions
-    guard known.insert(plainKey(app, label)).inserted else { return }
-    plainActions = known
-    logI("button \"\(label)\" on \(app) only opens the app; hiding it from now on")
-  }
-
   // MARK: notices
 
   /// Both routes feed here; whichever reports a notification first wins.
   private func present(_ notice: Notice, via route: String) {
     var notice = notice
-    // Buttons that turned out to do no more than a click on the card never reach one again.
-    let plain = plainActions
-    if !plain.isEmpty { notice.actions.removeAll { plain.contains(plainKey(notice.app, $0.label)) } }
     // The pinned test came back from the system as an ordinary banner. Pin it here so the card
     // behaves as the test promises, whatever notification style the Mac gives Pounce.
     if notice.app == "Pounce", pendingPinnedTests.remove(notice.title) != nil {
@@ -359,13 +333,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// A notification carrying the system's own buttons, including a reply field. Pressing one on the
   /// card brings the real banner onto the card's spot, which is the only way that inline UI can be used.
   private static let actionCategory = "pounce.test.actions"
+  private static let callCategory = "pounce.test.call"
 
   private func registerActionCategory() {
     let reply = UNTextInputNotificationAction(identifier: "reply", title: T("답장"), options: [],
                                               textInputButtonTitle: T("보내기"), textInputPlaceholder: T("메시지"))
+    // A call: two buttons, one of them the kind that must not be missed.
+    let answer = UNNotificationAction(identifier: "answer", title: T("수락"), options: [.foreground])
+    let decline = UNNotificationAction(identifier: "decline", title: T("거절"), options: [.destructive])
     UNUserNotificationCenter.current().setNotificationCategories([
       UNNotificationCategory(identifier: Self.actionCategory, actions: [reply],
-                             intentIdentifiers: [], options: [])
+                             intentIdentifiers: [], options: []),
+      UNNotificationCategory(identifier: Self.callCategory, actions: [answer, decline],
+                             intentIdentifiers: [], options: []),
     ])
   }
 
@@ -391,6 +371,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let url = FileManager.default.temporaryDirectory.appendingPathComponent("pounce-test.png")
     do { try png.write(to: url) } catch { logE("test image: \(error.localizedDescription)"); return nil }
     return url
+  }
+
+  /// What an incoming call looks like on a card: two buttons and no countdown. Pressing them here
+  /// always works — the notification is ours — so this shows the shape, not whether another app's
+  /// call buttons can be pressed through accessibility.
+  @objc private func sendCallTest() {
+    let title = T("전화 테스트")
+    pendingPinnedTests.insert(title)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in self?.pendingPinnedTests.remove(title) }
+    sendNotification(title, T("수락과 거절 버튼이 달린 지속형 알림입니다."), pinned: true, category: Self.callCategory)
   }
 
   @objc private func sendActionTest() {

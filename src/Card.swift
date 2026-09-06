@@ -16,6 +16,8 @@ enum Style {
   /// How long a banner card stays, from the settings; the ring counts it down.
   static var showSeconds: TimeInterval { Settings.shared.duration }
   static let maxGroups = 3
+  /// The mark that stands for one notification: a filled dot that empties over the time it has left.
+  static var dotSize: CGFloat { 11 * scale }
   static let maxHistory = 3
 }
 
@@ -224,6 +226,22 @@ final class NoticeGroup {
 
   func add(_ notice: Notice) { notices.insert(notice, at: 0) }
 
+  /// Pushes every arrival forward, for time that should not have counted — the pointer resting on
+  /// the card while someone reads it.
+  func shiftArrival(by seconds: TimeInterval) {
+    for i in notices.indices { notices[i].arrived = notices[i].arrived.addingTimeInterval(seconds) }
+  }
+
+  /// Drops notices that have had their time. `keep` spares the ones whose banner is still there —
+  /// a call that is still ringing, an alert nobody has answered — so only the spent ones go.
+  @discardableResult
+  func prune(after seconds: TimeInterval, keep: (Notice) -> Bool) -> Bool {
+    let before = notices.count
+    let now = Date()
+    notices.removeAll { now.timeIntervalSince($0.arrived) > seconds && !keep($0) }
+    return notices.count != before
+  }
+
   /// Drops a notice whose system banner is gone; returns true when something was removed.
   @discardableResult
   func remove(key: String) -> Bool {
@@ -262,13 +280,25 @@ final class CardPanel: NSPanel {
   private var closeButton: NSButton?
   private var ring: CountdownRing?
   private var buttonActions: [AXAction] = []
+  /// Buttons belonging to older notifications on this card, by the tag their pill carries.
+  private var historyActions: [Int: (Notice, AXAction)] = [:]
+  private let historyTagSeed = 100
   /// A card opens folded at four lines. Scrolling on it — the movement you would make to read on —
   /// opens the rest, so nothing has to be aimed at.
   private var expanded = false
   private var folded = false
+  /// A notification's buttons are pressable only while its own banner exists. macOS keeps a couple
+  /// alive and destroys the rest, so this is asked per notification, not per card: on a card holding
+  /// several, one line can still act while another cannot.
+  private func isLive(_ notice: Notice) -> Bool { notice.element?.role != nil }
   private var auroraBlobs: [CAGradientLayer] = []
   private let palette: Palette
   private var dismissWork: DispatchWorkItem?
+  private var pruneTimer: Timer?
+  /// The dots on screen, with the notice each one is counting for: hovering has to stop them all
+  /// together and start them again where they stopped.
+  private var dots: [(dot: CountdownDot, key: String)] = []
+  private var hoverStarted: Date?
   private(set) var isClosing = false
   private(set) var cardHeight: CGFloat = 0
   /// The card changed height on its own; the stack has to make room.
@@ -422,6 +452,9 @@ final class CardPanel: NSPanel {
   /// Lays out the newest notice big, older ones as a short list, and returns the new card height.
   @discardableResult
   func rebuildContent() -> CGFloat {
+    // Cleared before anything is built: the marks and buttons registered below belong to this pass.
+    historyActions.removeAll()
+    dots.removeAll()
     content?.removeFromSuperview()
     installCorner()
     let notice = group.latest
@@ -456,7 +489,7 @@ final class CardPanel: NSPanel {
     appLabel.attributedStringValue = appText
     appLabel.lineBreakMode = .byTruncatingTail
     appLabel.maximumNumberOfLines = 1
-    let header = NSStackView(views: [dot(size: 7), appLabel])
+    let header = NSStackView(views: [countdownDot(for: notice), appLabel])
     header.orientation = .horizontal
     header.spacing = 7
     header.alignment = .centerY
@@ -515,7 +548,9 @@ final class CardPanel: NSPanel {
     // The banner's own buttons, minus its close action: the X in the corner already is that.
     // Pressing one hands the press back to the real banner, which is where the system draws
     // whatever the button opens (a reply field, a menu).
-    buttonActions = Array(notice.actions.filter { !$0.isClose && !$0.isExpand && !$0.isOpenApp }.prefix(3))
+    buttonActions = isLive(notice)
+      ? Array(notice.actions.filter { !$0.isClose && !$0.isExpand && !$0.isOpenApp }.prefix(3))
+      : []
     let text = NSStackView(views: [header, title, subtitle, body])
     text.orientation = .vertical
     text.alignment = .leading
@@ -531,13 +566,40 @@ final class CardPanel: NSPanel {
     row.spacing = 16
     row.alignment = .top
 
-    // Older notices from the same app, newest first.
+    folded = bodyFolded
+    // A picture came with this notification and the card cannot draw it. The button hands the
+    // notification back to the system's banner, in the card's place, where the picture is drawn.
+    var extras: [NSButton] = []
+    if notice.hasImage, isLive(notice) {
+      let photo = pill(T("사진"), tag: -1)
+      photo.target = self
+      photo.action = #selector(showImage)
+      extras.append(photo)
+    }
+
+    // The latest notification's own buttons, directly under its text: they belong to it, not to the
+    // history that follows.
     let innerWidth = Style.width - Style.padding * 2
-    let history = Array(group.notices.dropFirst().prefix(Style.maxHistory))
     let column = NSStackView(views: [row])
     column.orientation = .vertical
     column.alignment = .leading
     column.spacing = 10
+    if !buttonActions.isEmpty || !extras.isEmpty {
+      // A spacer as wide as the icon and its gap, so the buttons start on the text's left edge.
+      let indent = NSView()
+      indent.translatesAutoresizingMaskIntoConstraints = false
+      indent.widthAnchor.constraint(equalToConstant: Style.iconSize + 16).isActive = true
+      indent.heightAnchor.constraint(equalToConstant: 1).isActive = true
+      let pills = NSStackView(views: [indent] + buttonActions.enumerated().map { pill($1.label, tag: $0) } + extras)
+      pills.orientation = .horizontal
+      pills.alignment = .centerY
+      pills.spacing = 8
+      pills.setCustomSpacing(0, after: indent)
+      column.addArrangedSubview(pills)
+    }
+
+    // Older notices from the same app, newest first.
+    let history = Array(group.notices.dropFirst().prefix(Style.maxHistory))
     if !history.isEmpty {
       column.addArrangedSubview(divider(width: innerWidth))
       let historyStack = NSStackView(views: history.map { historyRow($0, width: innerWidth) })
@@ -552,29 +614,6 @@ final class CardPanel: NSPanel {
         rest.textColor = palette.textTertiary
         column.addArrangedSubview(rest)
       }
-    }
-    folded = bodyFolded
-    // A picture came with this notification and the card cannot draw it. The button hands the
-    // notification back to the system's banner, in the card's place, where the picture is drawn.
-    var extras: [NSButton] = []
-    if notice.hasImage {
-      let photo = pill(T("사진"), tag: -1)
-      photo.target = self
-      photo.action = #selector(showImage)
-      extras.append(photo)
-    }
-    if !buttonActions.isEmpty || !extras.isEmpty {
-      // A spacer as wide as the icon and its gap, so the buttons start on the text's left edge.
-      let indent = NSView()
-      indent.translatesAutoresizingMaskIntoConstraints = false
-      indent.widthAnchor.constraint(equalToConstant: Style.iconSize + 16).isActive = true
-      indent.heightAnchor.constraint(equalToConstant: 1).isActive = true
-      let pills = NSStackView(views: [indent] + buttonActions.enumerated().map { pill($1.label, tag: $0) } + extras)
-      pills.orientation = .horizontal
-      pills.alignment = .centerY
-      pills.spacing = 8
-      pills.setCustomSpacing(0, after: indent)
-      column.addArrangedSubview(pills)
     }
     column.translatesAutoresizingMaskIntoConstraints = false
     contentHost.addSubview(column, positioned: .below, relativeTo: nil)
@@ -634,8 +673,9 @@ final class CardPanel: NSPanel {
       closeButton = close
       self.ring = ring
     }
-    // A persistent alert has no countdown, exactly like the system's.
-    ring?.isHidden = group.isAlert
+    // The countdown lives in the dot beside the app name, on every line. The corner keeps only the
+    // close button.
+    ring?.isHidden = true
   }
 
   private func divider(width: CGFloat) -> NSView {
@@ -648,23 +688,33 @@ final class CardPanel: NSPanel {
     return v
   }
 
-  private func dot(size: CGFloat) -> NSView {
-    let d = NSView()
-    d.wantsLayer = true
-    d.layer?.backgroundColor = palette.tint.cgColor
-    d.layer?.cornerRadius = size / 2
-    d.layer?.shadowColor = palette.tint.cgColor
-    d.layer?.shadowOpacity = 0.8
-    d.layer?.shadowRadius = 4
-    d.layer?.shadowOffset = .zero
-    d.translatesAutoresizingMaskIntoConstraints = false
-    d.widthAnchor.constraint(equalToConstant: size).isActive = true
-    d.heightAnchor.constraint(equalToConstant: size).isActive = true
-    return d
+  /// The mark for one notification: a ring draining over the time that notification has left. The
+  /// same token on the card's own line and on every line stacked under it, so one glance reads them
+  /// all. A notice whose banner is still standing — a call still ringing — is not on a clock, and
+  /// its ring stays full.
+  private func countdownDot(for notice: Notice) -> NSView {
+    let dot = CountdownDot(colour: palette.tint, diameter: Style.dotSize)
+    let total = Style.showSeconds
+    let elapsed = Date().timeIntervalSince(notice.arrived)
+    // Not everything is on a clock. A pinned notice waits to be closed and a ringing call waits to
+    // be answered: their dots stay full, because nothing is running out.
+    guard !notice.pinned, !(notice.isAlert && isLive(notice)), total > 0 else { return dot }
+    dots.append((dot, notice.key))
+    guard elapsed < total else {
+      // Its time is up and it is only still here because the pointer is: an empty dot, not a fresh one.
+      dot.empty()
+      return dot
+    }
+    dot.drain(from: CGFloat(elapsed / total), over: total - elapsed)
+    if isHovered { dot.freeze() }
+    return dot
   }
 
+
   private func historyRow(_ n: Notice, width: CGFloat) -> NSView {
-    let dot = dot(size: 5)
+    // Each line has its own clock now, so each line shows it. A notice whose banner is still
+    // standing is not on a clock at all — a ringing call waits for an answer — and keeps its dot.
+    let mark = countdownDot(for: n)
 
     let line = NSMutableAttributedString()
     line.append(NSAttributedString(string: n.title, attributes: [
@@ -680,11 +730,34 @@ final class CardPanel: NSPanel {
     label.maximumNumberOfLines = 1
     label.translatesAutoresizingMaskIntoConstraints = false
     label.widthAnchor.constraint(lessThanOrEqualToConstant: width - 14).isActive = true
+    // The line gives way to the buttons rather than pushing them off the card.
+    label.setContentCompressionResistancePriority(.init(1), for: .horizontal)
 
-    let row = NSStackView(views: [dot, label])
+    // The buttons of an older notification, on the right of its line. Only the ones still pressable:
+    // macOS keeps a couple of banners alive at a time and destroys the rest, and a button whose
+    // banner is gone would do nothing.
+    var views: [NSView] = [mark, label]
+    if isLive(n) {
+      let live = n.actions.filter { !$0.isClose && !$0.isExpand && !$0.isOpenApp }.prefix(2)
+      if !live.isEmpty {
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        spacer.setContentCompressionResistancePriority(.init(1), for: .horizontal)
+        views.append(spacer)
+        for action in live {
+          let tag = historyTagSeed + historyActions.count
+          historyActions[tag] = (n, action)
+          views.append(pill(action.label, tag: tag, small: true))
+        }
+      }
+    }
+    let row = NSStackView(views: views)
     row.orientation = .horizontal
     row.alignment = .centerY
     row.spacing = 8
+    row.translatesAutoresizingMaskIntoConstraints = false
+    row.widthAnchor.constraint(equalToConstant: width).isActive = true
     return row
   }
 
@@ -721,12 +794,12 @@ final class CardPanel: NSPanel {
     return kept.isEmpty ? text : kept + "…"
   }
 
-  private func pill(_ label: String, tag: Int) -> NSButton {
+  private func pill(_ label: String, tag: Int, small: Bool = false) -> NSButton {
     let title = NSAttributedString(string: label, attributes: [
-      .foregroundColor: palette.text,
-      .font: NSFont.systemFont(ofSize: 13 * Style.scale, weight: .semibold),
+      .foregroundColor: small ? palette.textSecondary : palette.text,
+      .font: NSFont.systemFont(ofSize: (small ? 11 : 13) * Style.scale, weight: .semibold),
     ])
-    let height = 28 * Style.scale
+    let height = (small ? 20 : 28) * Style.scale
     let b = PillButton(title: "", target: self, action: #selector(actionClicked(_:)))
     b.tag = tag
     b.isBordered = false
@@ -781,6 +854,14 @@ final class CardPanel: NSPanel {
   }
 
   @objc private func actionClicked(_ sender: NSButton) {
+    // An older notification's button acts on that notification, and leaves the card standing:
+    // the others on it are still worth reading.
+    if let (notice, action) = historyActions[sender.tag] {
+      onAction?(notice, action)
+      _ = rebuildContent()
+      onResize?()
+      return
+    }
     guard buttonActions.indices.contains(sender.tag) else { return }
     // Whatever the button opens, the real banner takes over from here.
     onAction?(group.latest, buttonActions[sender.tag])
@@ -794,16 +875,34 @@ final class CardPanel: NSPanel {
   }
 
   override func mouseEntered(with event: NSEvent) {
+    logD("card \(group.app): mouse in")
     isHovered = true
+    hoverStarted = Date()
     dismissWork?.cancel()
     ring?.freeze()
+    for (dot, _) in dots { dot.freeze() }
   }
 
   override func mouseExited(with event: NSEvent) {
     guard !isDragging else { return }
+    logD("card \(group.app): mouse out")
     isHovered = false
-    // A short grace, so a pointer that only brushed past does not take the card with it.
-    if dismissWhenMouseLeaves { startDismiss(after: 1.5) } else { scheduleAutoDismiss(after: 1.5) }
+    // The time spent reading is given back to every notice on the card, so the dots pick up where
+    // they stopped and the pruning agrees with them.
+    if let started = hoverStarted {
+      group.shiftArrival(by: Date().timeIntervalSince(started))
+      hoverStarted = nil
+      let total = Style.showSeconds
+      for (dot, key) in dots {
+        guard let notice = group.notices.first(where: { $0.key == key }) else { continue }
+        let left = total - Date().timeIntervalSince(notice.arrived)
+        if left > 0 { dot.drain(from: 1 - CGFloat(left / total), over: left) } else { dot.empty() }
+      }
+    }
+    // The card leaves when its newest notice runs out, not on a fixed grace: the dot beside the app
+    // name is showing that time, and the two have to end together. A brush past still gets a moment.
+    let left = Style.showSeconds - Date().timeIntervalSince(group.latest.arrived)
+    if dismissWhenMouseLeaves { startDismiss(after: 1.5) } else { scheduleAutoDismiss(after: max(1.5, left)) }
   }
 
   // MARK: drag
@@ -845,15 +944,50 @@ final class CardPanel: NSPanel {
   /// instead; only a persistent alert follows the system's, unless the user is looking at it.
   func originalGone() {
     logD("card \(group.app): original gone, alert=\(group.isAlert)")
-    guard group.isAlert, !group.isPinned else { return }
+    guard group.isAlert, !group.isPinned else {
+      // A card outlives its banner by the user's duration setting, but not its buttons: the rebuild
+      // asks each line again whether its own banner is still there.
+      if !buttonActions.isEmpty || !historyActions.isEmpty || group.latest.hasImage {
+        _ = rebuildContent()
+        onResize?()
+      }
+      return
+    }
     if isHovered { dismissWhenMouseLeaves = true } else { dismiss() }
+  }
+
+  /// Every notice on the card ages out on its own once its time is up, unless its banner is still
+  /// standing. Without this a single lingering alert would hold the whole stack on screen forever.
+  private func startPruning() {
+    pruneTimer?.invalidate()
+    // Often enough that a line leaves as its dot empties, not a beat later.
+    pruneTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] timer in
+      guard let self else { timer.invalidate(); return }
+      // Not while it is being read.
+      guard !self.isHovered, !self.expanded else { return }
+      // Pinned means pinned: it goes when it is closed, never because time passed. A notice whose
+      // banner is still standing waits too — a call keeps ringing until someone answers.
+      guard self.group.prune(after: Style.showSeconds,
+                             keep: { $0.pinned || self.isLive($0) }) else { return }
+      logD("card \(self.group.app): pruned, \(self.group.notices.count) left")
+      if self.group.isEmpty {
+        timer.invalidate()
+        self.dismiss()
+        return
+      }
+      _ = self.rebuildContent()
+      self.onResize?()
+    }
   }
 
   /// Banners follow the system banner's own lifetime; this timer is only the fallback.
   /// A persistent alert stays, exactly like the system's, until the user acts on it.
   func scheduleAutoDismiss(after seconds: TimeInterval = Style.showSeconds) {
     dismissWork?.cancel()
-    guard !group.isAlert, !isHovered else { return }
+    // The card's clock belongs to its newest notice, not to the whole stack: one pinned alert
+    // underneath used to stop the countdown for everything above it. Only a notice whose banner is
+    // still standing — a call still ringing — waits instead of counting.
+    guard !isHovered, !(group.latest.isAlert && isLive(group.latest)) else { return }
     startDismiss(after: seconds)
   }
 
@@ -864,7 +998,17 @@ final class CardPanel: NSPanel {
     ring?.drain(over: seconds)
     let work = DispatchWorkItem { [weak self] in
       guard let self, !self.isHovered else { return }
-      self.dismiss()
+      // The newest notice running out is not the card running out: anything still waiting under it
+      // — something pinned, a call still ringing — takes its place at the top instead.
+      self.group.prune(after: Style.showSeconds, keep: { $0.pinned || self.isLive($0) })
+      guard !self.group.isEmpty else {
+        self.dismiss()
+        return
+      }
+      _ = self.rebuildContent()
+      self.onResize?()
+      let left = Style.showSeconds - Date().timeIntervalSince(self.group.latest.arrived)
+      if left > 0 { self.scheduleAutoDismiss(after: left) }
     }
     dismissWork = work
     DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
@@ -882,6 +1026,7 @@ final class CardPanel: NSPanel {
 
   func present(at frame: NSRect) {
     presentedAt = Date()
+    startPruning()
     setFrame(frame, display: false)
     isHovered = cardRect.contains(NSEvent.mouseLocation)
     root.layoutSubtreeIfNeeded()
@@ -964,6 +1109,7 @@ final class CardPanel: NSPanel {
     logD("card \(group.app): dismiss")
     isClosing = true
     dismissWork?.cancel()
+    pruneTimer?.invalidate()
     guard !reduceMotion, let layer = root.layer else {
       NSAnimationContext.runAnimationGroup({ ctx in
         ctx.duration = 0.15
@@ -1005,6 +1151,88 @@ extension CardPanel: NSGestureRecognizerDelegate {
 
 /// Time left before the card goes, as an arc around the close button. It only reads: it drains
 /// clockwise from full, holds while the pointer is on the card, and refills when a new notice lands.
+/// A notification's mark: a filled dot that empties like a clock face over the time that
+/// notification has left. Drawn as one thick stroke on a small circle, so sweeping the stroke away
+/// takes the fill with it from the centre out.
+private final class CountdownDot: NSView {
+  private let pie = CAShapeLayer()
+  private let diameter: CGFloat
+
+  init(colour: NSColor, diameter: CGFloat) {
+    self.diameter = diameter
+    super.init(frame: NSRect(x: 0, y: 0, width: diameter, height: diameter))
+    wantsLayer = true
+    translatesAutoresizingMaskIntoConstraints = false
+    pie.fillColor = nil
+    pie.strokeColor = colour.cgColor
+    pie.lineWidth = diameter / 2
+    pie.shadowColor = colour.cgColor
+    pie.shadowOpacity = 0.7
+    pie.shadowRadius = 3
+    pie.shadowOffset = .zero
+    layer?.addSublayer(pie)
+
+    widthAnchor.constraint(equalToConstant: diameter).isActive = true
+    heightAnchor.constraint(equalToConstant: diameter).isActive = true
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+  override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+  /// Drawn from the view's own middle every time it is laid out, so the dot sits dead centre in the
+  /// square it is given whatever that square turns out to be.
+  override func layout() {
+    super.layout()
+    let side = min(bounds.width, bounds.height)
+    let centre = NSPoint(x: bounds.midX, y: bounds.midY)
+    let path = NSBezierPath()
+    path.appendArc(withCenter: centre, radius: side / 4, startAngle: 90, endAngle: -270, clockwise: true)
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    pie.frame = bounds
+    pie.path = path.cgPath
+    pie.lineWidth = side / 2
+    CATransaction.commit()
+  }
+
+  /// How much of the dot is spent right now: the running animation's own value while it runs,
+  /// otherwise the model value a freeze or a fill has just set.
+  var spent: CGFloat {
+    guard pie.animation(forKey: "drain") != nil, let shown = pie.presentation() else { return pie.strokeStart }
+    return shown.strokeStart
+  }
+
+  /// Stops the clock where it stands. The card does the same with its own dismissal while the
+  /// pointer is on it, and the two have to agree.
+  func freeze() {
+    let now = spent
+    pie.removeAnimation(forKey: "drain")
+    pie.strokeStart = now
+  }
+
+  /// Empty: the time is up but the line is still on screen, waiting for the pointer to leave.
+  func empty() {
+    pie.removeAnimation(forKey: "drain")
+    pie.strokeStart = 1
+  }
+
+  /// Picks up where the clock already is: a notice that has been waiting shows a dot already
+  /// part-spent rather than starting over.
+  func drain(from start: CGFloat, over seconds: TimeInterval) {
+    pie.removeAnimation(forKey: "drain")
+    pie.strokeStart = start
+    let a = CABasicAnimation(keyPath: "strokeStart")
+    a.fromValue = start
+    a.toValue = 1
+    a.duration = max(0.01, seconds)
+    a.timingFunction = CAMediaTimingFunction(name: .linear)
+    a.fillMode = .forwards
+    a.isRemovedOnCompletion = false
+    pie.add(a, forKey: "drain")
+  }
+}
+
 /// The card's close button: clear enough to find without hunting, brighter under the pointer.
 private final class CloseButton: NSButton {
   var idleTint: NSColor = .labelColor
@@ -1078,11 +1306,11 @@ final class CountdownRing: NSView {
   static let size: CGFloat = 30
   private let arc = CAShapeLayer()
 
-  init(tint: NSColor, track: NSColor, glow: Bool) {
-    super.init(frame: NSRect(x: 0, y: 0, width: Self.size, height: Self.size))
+  init(tint: NSColor, track: NSColor, glow: Bool, diameter: CGFloat = CountdownRing.size) {
+    super.init(frame: NSRect(x: 0, y: 0, width: diameter, height: diameter))
     wantsLayer = true
     translatesAutoresizingMaskIntoConstraints = false
-    let r = Self.size / 2
+    let r = diameter / 2
     let path = NSBezierPath()
     path.appendArc(withCenter: NSPoint(x: r, y: r), radius: r - 2, startAngle: 90, endAngle: -270, clockwise: true)
     let trackLayer = CAShapeLayer()
@@ -1090,7 +1318,7 @@ final class CountdownRing: NSView {
       shape.path = path.cgPath
       shape.fillColor = nil
       shape.strokeColor = color.cgColor
-      shape.lineWidth = 2.4
+      shape.lineWidth = diameter < 20 ? 1.6 : 2.4
       shape.lineCap = .round
       shape.frame = bounds
       layer?.addSublayer(shape)
@@ -1113,6 +1341,20 @@ final class CountdownRing: NSView {
   private var drained: CGFloat {
     guard arc.animation(forKey: "drain") != nil, let shown = arc.presentation() else { return arc.strokeStart }
     return shown.strokeStart
+  }
+
+  /// Picks up from where the clock already is: a notice that has been on the card for a while shows
+  /// the ring already part-spent rather than starting over.
+  func drain(from start: CGFloat, over seconds: TimeInterval) {
+    set(strokeStart: start)
+    let a = CABasicAnimation(keyPath: "strokeStart")
+    a.fromValue = start
+    a.toValue = 1
+    a.duration = max(0.01, seconds)
+    a.timingFunction = CAMediaTimingFunction(name: .linear)
+    a.fillMode = .forwards
+    a.isRemovedOnCompletion = false
+    arc.add(a, forKey: "drain")
   }
 
   func drain(over seconds: TimeInterval) {

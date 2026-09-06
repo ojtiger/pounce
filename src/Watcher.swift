@@ -19,6 +19,9 @@ struct Notice {
   /// The banner carried a picture. Accessibility gives its size and nothing else — no pixels, no
   /// file — so the card can only say that one is there.
   var hasImage = false
+  /// When it reached us. Each notice ages out of its card on its own, so one that lingers cannot
+  /// keep the rest on screen with it.
+  var arrived = Date()
   /// The display the banner appeared on (a CGDirectDisplayID); 0 when unknown. The card centres here,
   /// so it lands where the notification was, whatever the display arrangement or resolution.
   var screenNumber: UInt32 = 0

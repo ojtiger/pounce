@@ -38,11 +38,18 @@ struct Palette {
   let sweep: NSColor
   let blobAlpha: CGFloat
   let wash: NSColor
+  /// The opaque card colour, for when the desktop is not to show through. Tinted by the app's hue
+  /// so a solid card still belongs to the app it came from.
+  let solidFill: NSColor
+  /// What the card casts: black for a shadow, the accent colour for a glow.
+  let glow: NSColor
+  let glowRadius: CGFloat
   let shadowOpacity: Float
 
   /// Theme and accent from the settings; "system" for either follows macOS at the moment the card is made.
   init(icon: NSImage?) {
     let settings = Settings.shared
+    let surface = settings.surface
     switch settings.theme {
     case .light: isDark = false
     case .dark: isDark = true
@@ -50,41 +57,69 @@ struct Palette {
     }
     let accent = (settings.accent.color ?? NSColor.controlAccentColor).usingColorSpace(.deviceRGB) ?? NSColor.systemBlue
     let h = accent.hueComponent
-    tint = accent
+    // 모노 is the one theme that answers "which app is this?" with nothing: colour is taken out
+    // everywhere, so the hue below is only kept alive to keep the arithmetic in one shape.
+    let colourful = surface != .mono
+    let sat: (CGFloat) -> CGFloat = { colourful ? $0 : 0 }
+    tint = colourful ? accent : NSColor(calibratedWhite: isDark ? 0.72 : 0.45, alpha: 1)
     if isDark {
-      warm = NSColor(calibratedHue: Palette.wrap(h + 0.09), saturation: 0.85, brightness: 0.95, alpha: 1)
-      cool = NSColor(calibratedHue: Palette.wrap(h - 0.14), saturation: 0.9, brightness: 0.9, alpha: 1)
+      warm = NSColor(calibratedHue: Palette.wrap(h + 0.09), saturation: sat(0.85), brightness: 0.95, alpha: 1)
+      cool = NSColor(calibratedHue: Palette.wrap(h - 0.14), saturation: sat(0.9), brightness: 0.9, alpha: 1)
       text = .labelColor
       textSecondary = .secondaryLabelColor
       textTertiary = .secondaryLabelColor
-      rim = [NSColor.white.withAlphaComponent(0.42), NSColor.white.withAlphaComponent(0.16),
-             NSColor.white.withAlphaComponent(0.1)]
+      rim = Palette.rimColours(surface: surface, edge: tint, dark: true)
       pillFill = NSColor.white.withAlphaComponent(0.14)
       pillHover = NSColor.white.withAlphaComponent(0.26)
       pillPressed = NSColor.white.withAlphaComponent(0.36)
       pillBorder = NSColor.white.withAlphaComponent(0.2)
       sweep = NSColor.white.withAlphaComponent(0.28)
       blobAlpha = 0.38
-      wash = NSColor(calibratedHue: h, saturation: 0.5, brightness: 0.2, alpha: 0.28)
-      shadowOpacity = 0.55
+      wash = NSColor(calibratedHue: h, saturation: sat(0.5), brightness: 0.2, alpha: 0.28)
+      // Neon sits on near-black so the edge light has something to read against.
+      solidFill = surface == .neon
+        ? NSColor(calibratedHue: h, saturation: sat(0.35), brightness: 0.09, alpha: 1)
+        : NSColor(calibratedHue: h, saturation: sat(0.16), brightness: 0.17, alpha: 1)
+      shadowOpacity = surface == .neon ? 0.9 : 0.55
+      glow = surface == .neon ? accent : .black
+      glowRadius = surface == .neon ? 38 : 24
     } else {
-      warm = NSColor(calibratedHue: Palette.wrap(h + 0.09), saturation: 0.5, brightness: 1, alpha: 1)
-      cool = NSColor(calibratedHue: Palette.wrap(h - 0.14), saturation: 0.55, brightness: 1, alpha: 1)
+      warm = NSColor(calibratedHue: Palette.wrap(h + 0.09), saturation: sat(0.5), brightness: 1, alpha: 1)
+      cool = NSColor(calibratedHue: Palette.wrap(h - 0.14), saturation: sat(0.55), brightness: 1, alpha: 1)
       let ink = NSColor(calibratedHue: h, saturation: 0.55, brightness: 0.2, alpha: 1)
       text = .labelColor
       textSecondary = .secondaryLabelColor
       textTertiary = .secondaryLabelColor
-      rim = [NSColor.white.withAlphaComponent(1), ink.withAlphaComponent(0.1),
-             ink.withAlphaComponent(0.16)]
+      rim = Palette.rimColours(surface: surface, edge: tint, dark: false, ink: ink)
       pillFill = NSColor.white.withAlphaComponent(0.6)
       pillHover = NSColor.white.withAlphaComponent(0.85)
       pillPressed = NSColor.white.withAlphaComponent(1)
       pillBorder = ink.withAlphaComponent(0.12)
       sweep = NSColor.white.withAlphaComponent(0.55)
       blobAlpha = 0.22
-      wash = NSColor(calibratedHue: h, saturation: 0.12, brightness: 1, alpha: 0.4)
-      shadowOpacity = 0.22
+      wash = NSColor(calibratedHue: h, saturation: sat(0.12), brightness: 1, alpha: 0.4)
+      solidFill = surface == .neon
+        ? NSColor(calibratedHue: h, saturation: sat(0.10), brightness: 0.97, alpha: 1)
+        : NSColor(calibratedHue: h, saturation: sat(0.05), brightness: 0.99, alpha: 1)
+      shadowOpacity = surface == .neon ? 0.45 : 0.22
+      glow = surface == .neon ? accent : .black
+      glowRadius = surface == .neon ? 34 : 24
     }
+  }
+
+  /// The hairline border: brighter at the top, quieter at the bottom. Neon lights it with the accent
+  /// colour; the rest keep the plain white or ink edge the material expects.
+  static func rimColours(surface: Surface, edge: NSColor, dark: Bool, ink: NSColor? = nil) -> [NSColor] {
+    if surface == .neon {
+      return [edge.withAlphaComponent(dark ? 0.95 : 0.9), edge.withAlphaComponent(dark ? 0.4 : 0.35),
+              edge.withAlphaComponent(dark ? 0.7 : 0.6)]
+    }
+    if dark {
+      return [NSColor.white.withAlphaComponent(0.42), NSColor.white.withAlphaComponent(0.16),
+              NSColor.white.withAlphaComponent(0.1)]
+    }
+    let ink = ink ?? NSColor(calibratedWhite: 0.2, alpha: 1)
+    return [NSColor.white.withAlphaComponent(1), ink.withAlphaComponent(0.1), ink.withAlphaComponent(0.16)]
   }
 
   private static func wrap(_ h: CGFloat) -> CGFloat { h < 0 ? h + 1 : (h > 1 ? h - 1 : h) }
@@ -226,10 +261,17 @@ final class CardPanel: NSPanel {
   private var closeButton: NSButton?
   private var ring: CountdownRing?
   private var buttonActions: [AXAction] = []
+  /// A card opens folded at four lines. Scrolling on it — the movement you would make to read on —
+  /// opens the rest, so nothing has to be aimed at.
+  private var expanded = false
+  private var folded = false
+  private var auroraBlobs: [CAGradientLayer] = []
   private let palette: Palette
   private var dismissWork: DispatchWorkItem?
   private(set) var isClosing = false
   private(set) var cardHeight: CGFloat = 0
+  /// The card changed height on its own; the stack has to make room.
+  var onResize: (() -> Void)?
 
   init(group: NoticeGroup) {
     self.group = group
@@ -264,9 +306,9 @@ final class CardPanel: NSPanel {
 
     let shadow = NSView()
     shadow.wantsLayer = true
-    shadow.layer?.shadowColor = NSColor.black.cgColor
+    shadow.layer?.shadowColor = palette.glow.cgColor
     shadow.layer?.shadowOpacity = palette.shadowOpacity
-    shadow.layer?.shadowRadius = 24
+    shadow.layer?.shadowRadius = palette.glowRadius
     shadow.layer?.shadowOffset = CGSize(width: 0, height: -10)
     shadow.layer?.cornerRadius = Style.corner
     shadow.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.001).cgColor
@@ -283,12 +325,28 @@ final class CardPanel: NSPanel {
 
     // Native Liquid Glass on macOS 26; frosted material before that. Content lives inside the
     // glass's contentView so the system renders text and refraction together.
+    let surface = Settings.shared.surface
     let glass: NSView
-    if #available(macOS 26.0, *) {
+    if !surface.isTranslucent {
+      // Nothing shows through: a plain card, the fastest to draw and the easiest to read over a
+      // busy desktop. Neon uses it too — its light has to fall on something solid to read as light.
+      // The sheen stays either way: a highlight on the surface, not a hole in it.
+      let v = NSView()
+      v.wantsLayer = true
+      v.layer?.backgroundColor = palette.solidFill.cgColor
+      v.layer?.cornerRadius = Style.corner
+      v.layer?.cornerCurve = .continuous
+      v.layer?.masksToBounds = true
+      contentHost = v
+      glass = v
+    } else if #available(macOS 26.0, *) {
       let g = NSGlassEffectView()
       g.cornerRadius = Style.corner
       g.style = .regular
-      g.tintColor = palette.tint.withAlphaComponent(palette.isDark ? 0.07 : 0.09)
+      // Mono leans on the glass itself with a colourless wash; aurora keeps its tint quiet so the
+      // clouds carry the colour; glass sits in between.
+      let strength: CGFloat = surface == .mono ? 0.16 : (surface == .aurora ? 0.04 : 0.07)
+      g.tintColor = palette.tint.withAlphaComponent(palette.isDark ? strength : strength + 0.02)
       let host = NSView()
       g.contentView = host
       contentHost = host
@@ -307,6 +365,25 @@ final class CardPanel: NSPanel {
     }
     glass.translatesAutoresizingMaskIntoConstraints = false
     glassHost.addSubview(glass)
+
+    // The glass's content view has no layer of its own until asked, and the clouds live in it.
+    contentHost.wantsLayer = true
+    if surface == .aurora, let host = contentHost.layer {
+      // Two soft clouds of the app's own warm and cool tones, sitting under everything the card
+      // draws. Placed off-centre and off-edge so the card never looks like a symmetrical gradient.
+      for (colour, centre) in [(palette.warm, CGPoint(x: 0.18, y: 0.9)), (palette.cool, CGPoint(x: 0.92, y: 0.05))] {
+        let blob = CAGradientLayer()
+        blob.type = .radial
+        blob.colors = [colour.withAlphaComponent(palette.blobAlpha).cgColor,
+                       colour.withAlphaComponent(0).cgColor]
+        blob.locations = [0, 1]
+        blob.startPoint = centre
+        blob.endPoint = CGPoint(x: centre.x + 0.85, y: centre.y + 0.85)
+        blob.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+        host.insertSublayer(blob, at: 0)
+        auroraBlobs.append(blob)
+      }
+    }
 
     sheen = Sheen(palette: palette)
     sheen.translatesAutoresizingMaskIntoConstraints = false
@@ -383,8 +460,11 @@ final class CardPanel: NSPanel {
     header.spacing = 7
     header.alignment = .centerY
 
-    let title = NSTextField(wrappingLabelWithString: notice.title)
-    title.font = .systemFont(ofSize: 20 * Style.scale, weight: .bold)
+    let titleFont = NSFont.systemFont(ofSize: 20 * Style.scale, weight: .bold)
+    let title = NSTextField(wrappingLabelWithString:
+      Self.clamped(notice.title, to: 2, attributes: [.font: titleFont], font: titleFont,
+                   spacing: 0, width: textWidth))
+    title.font = titleFont
     title.textColor = palette.text
     title.shadow = textShadow
     title.maximumNumberOfLines = 2
@@ -392,8 +472,11 @@ final class CardPanel: NSPanel {
     title.isSelectable = false
     title.isHidden = notice.title.isEmpty
 
-    let subtitle = NSTextField(wrappingLabelWithString: notice.subtitle)
-    subtitle.font = .systemFont(ofSize: 14.5 * Style.scale, weight: .semibold)
+    let subtitleFont = NSFont.systemFont(ofSize: 14.5 * Style.scale, weight: .semibold)
+    let subtitle = NSTextField(wrappingLabelWithString:
+      Self.clamped(notice.subtitle, to: 2, attributes: [.font: subtitleFont], font: subtitleFont,
+                   spacing: 0, width: textWidth))
+    subtitle.font = subtitleFont
     subtitle.textColor = palette.textSecondary
     subtitle.shadow = textShadow
     subtitle.maximumNumberOfLines = 2
@@ -404,13 +487,23 @@ final class CardPanel: NSPanel {
     let body = NSTextField(wrappingLabelWithString: "")
     let para = NSMutableParagraphStyle()
     para.lineSpacing = 1.5
+    // The label only ever wraps: a truncating mode makes AppKit lay the text out on a single line.
+    // The cut and its ellipsis are put into the string before it gets here.
     para.lineBreakMode = .byWordWrapping
-    body.attributedStringValue = NSAttributedString(string: notice.body, attributes: [
-      .font: NSFont.systemFont(ofSize: 14.5 * Style.scale), .foregroundColor: palette.textTertiary, .paragraphStyle: para])
+    let bodyFont = NSFont.systemFont(ofSize: 14.5 * Style.scale)
+    let bodyAttributes: [NSAttributedString.Key: Any] = [
+      .font: bodyFont, .foregroundColor: palette.textTertiary, .paragraphStyle: para]
+    // Cut to four lines here rather than leaving it to the label: a text field asks for the height
+    // of every line it holds, so the card would simply grow and nothing would ever be truncated.
+    let bodyLines = expanded ? 40 : 4
+    let shownBody = Self.clamped(notice.body, to: bodyLines, attributes: bodyAttributes, font: bodyFont,
+                                 spacing: para.lineSpacing, width: textWidth)
+    let bodyFolded = shownBody != notice.body
+    body.attributedStringValue = NSAttributedString(string: shownBody, attributes: bodyAttributes)
     body.font = .systemFont(ofSize: 14.5 * Style.scale)
     body.textColor = palette.textTertiary
     body.shadow = textShadow
-    body.maximumNumberOfLines = 4
+    body.maximumNumberOfLines = bodyLines
     body.preferredMaxLayoutWidth = textWidth
     body.isSelectable = false
     body.isHidden = notice.body.isEmpty
@@ -456,6 +549,7 @@ final class CardPanel: NSPanel {
         column.addArrangedSubview(rest)
       }
     }
+    folded = bodyFolded
     if !buttonActions.isEmpty {
       // A spacer as wide as the icon and its gap, so the buttons start on the text's left edge.
       let indent = NSView()
@@ -481,6 +575,12 @@ final class CardPanel: NSPanel {
 
     root.layoutSubtreeIfNeeded()
     cardHeight = max(Style.iconSize + Style.padding * 2, column.fittingSize.height + Style.padding * 2)
+    if !auroraBlobs.isEmpty {
+      CATransaction.begin()
+      CATransaction.setDisableActions(true)
+      for blob in auroraBlobs { blob.frame = contentHost.bounds }
+      CATransaction.commit()
+    }
     return cardHeight
   }
 
@@ -488,10 +588,13 @@ final class CardPanel: NSPanel {
   /// made once, kept through rebuilds, always above whatever the content lays out.
   private func installCorner() {
     if closeButton == nil {
-      let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: T("닫기"))!,
-                           target: self, action: #selector(closeClicked))
+      let mark = NSImage(systemSymbolName: "xmark", accessibilityDescription: T("닫기"))!
+        .withSymbolConfiguration(.init(pointSize: 12, weight: .bold)) ?? NSImage()
+      let close = CloseButton(image: mark, target: self, action: #selector(closeClicked))
       close.isBordered = false
-      close.contentTintColor = palette.text.withAlphaComponent(0.38)
+      close.idleTint = palette.text.withAlphaComponent(0.62)
+      close.hoverTint = palette.text
+      close.contentTintColor = close.idleTint
       close.translatesAutoresizingMaskIntoConstraints = false
       let ring = CountdownRing(tint: palette.tint, track: palette.text.withAlphaComponent(0.1), glow: palette.isDark)
       // Catches presses anywhere on the card except the corner, so a drag works over text and icon alike;
@@ -508,8 +611,8 @@ final class CardPanel: NSPanel {
         dragCatcher.bottomAnchor.constraint(equalTo: contentHost.bottomAnchor),
         close.topAnchor.constraint(equalTo: contentHost.topAnchor, constant: 15),
         close.trailingAnchor.constraint(equalTo: contentHost.trailingAnchor, constant: -15),
-        close.widthAnchor.constraint(equalToConstant: 16),
-        close.heightAnchor.constraint(equalToConstant: 16),
+        close.widthAnchor.constraint(equalToConstant: 18),
+        close.heightAnchor.constraint(equalToConstant: 18),
         ring.centerXAnchor.constraint(equalTo: close.centerXAnchor),
         ring.centerYAnchor.constraint(equalTo: close.centerYAnchor),
         ring.widthAnchor.constraint(equalToConstant: CountdownRing.size),
@@ -574,6 +677,37 @@ final class CardPanel: NSPanel {
 
   /// A rounded action button. The padding is measured, not spelled with spaces: the text is centred
   /// by the layout and the pill is exactly as wide as the text plus its inset, at any card size.
+  /// The text as much of it as fits in `lines`, with an ellipsis where it was cut. Measured against
+  /// the real font and width, so the cut lands on the last line that fits rather than a guessed count.
+  private static func clamped(_ text: String, to lines: Int, attributes: [NSAttributedString.Key: Any],
+                              font: NSFont, spacing: CGFloat, width: CGFloat) -> String {
+    let limit = ceil(NSLayoutManager().defaultLineHeight(for: font) * CGFloat(lines)
+                     + spacing * CGFloat(lines - 1)) + 1
+    // Measured as wrapping text. Measuring with a truncating style answers with the height of one
+    // line — it never wraps — and every text would look like it fits.
+    var measured = attributes
+    let wrapping = ((attributes[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy()
+                    as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+    wrapping.lineBreakMode = .byWordWrapping
+    measured[.paragraphStyle] = wrapping
+    func height(_ candidate: String) -> CGFloat {
+      NSAttributedString(string: candidate, attributes: measured)
+        .boundingRect(with: NSSize(width: width, height: .greatestFiniteMagnitude),
+                      options: [.usesLineFragmentOrigin, .usesFontLeading]).height
+    }
+    logD("clamp \(lines)줄 폭=\(Int(width)) 글자=\(text.count) 높이=\(Int(height(text))) 한계=\(Int(limit))")
+    guard height(text) > limit else { return text }
+    let characters = Array(text)
+    var low = 0, high = characters.count
+    while low < high {
+      let mid = (low + high + 1) / 2
+      if height(String(characters[0..<mid]) + "…") <= limit { low = mid } else { high = mid - 1 }
+    }
+    let kept = String(characters[0..<low]).trimmingCharacters(in: .whitespacesAndNewlines)
+    logD("clamp 잘림 \(text.count) → \(kept.count)")
+    return kept.isEmpty ? text : kept + "…"
+  }
+
   private func pill(_ label: String, tag: Int) -> NSButton {
     let title = NSAttributedString(string: label, attributes: [
       .foregroundColor: palette.text,
@@ -610,6 +744,22 @@ final class CardPanel: NSPanel {
     guard settled else { return }
     onActivate?(group.latest)
     dismiss()
+  }
+
+  override func scrollWheel(with event: NSEvent) {
+    guard folded, !expanded, abs(event.scrollingDeltaY) > 0.5 else { return }
+    expand()
+  }
+
+  /// Unfolds the body. The countdown stops while it is open — a card that vanishes mid-sentence is
+  /// worse than one that overstays — and moving the pointer off the card ends it as usual.
+  private func expand() {
+    guard !expanded else { return }
+    expanded = true
+    dismissWork?.cancel()
+    ring?.freeze()
+    _ = rebuildContent()
+    onResize?()
   }
 
   @objc private func actionClicked(_ sender: NSButton) {
@@ -837,6 +987,24 @@ extension CardPanel: NSGestureRecognizerDelegate {
 
 /// Time left before the card goes, as an arc around the close button. It only reads: it drains
 /// clockwise from full, holds while the pointer is on the card, and refills when a new notice lands.
+/// The card's close button: clear enough to find without hunting, brighter under the pointer.
+private final class CloseButton: NSButton {
+  var idleTint: NSColor = .labelColor
+  var hoverTint: NSColor = .labelColor
+  private var tracking: NSTrackingArea?
+
+  override func updateTrackingAreas() {
+    super.updateTrackingAreas()
+    if let tracking { removeTrackingArea(tracking) }
+    let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways], owner: self)
+    addTrackingArea(area)
+    tracking = area
+  }
+
+  override func mouseEntered(with event: NSEvent) { contentTintColor = hoverTint }
+  override func mouseExited(with event: NSEvent) { contentTintColor = idleTint }
+}
+
 /// An action pill that answers the pointer: brighter under it, brighter still while held.
 private final class PillButton: NSButton {
   var fill: NSColor = .clear { didSet { paint(fill) } }
@@ -898,21 +1066,21 @@ final class CountdownRing: NSView {
     translatesAutoresizingMaskIntoConstraints = false
     let r = Self.size / 2
     let path = NSBezierPath()
-    path.appendArc(withCenter: NSPoint(x: r, y: r), radius: r - 1.5, startAngle: 90, endAngle: -270, clockwise: true)
+    path.appendArc(withCenter: NSPoint(x: r, y: r), radius: r - 2, startAngle: 90, endAngle: -270, clockwise: true)
     let trackLayer = CAShapeLayer()
     for (shape, color) in [(trackLayer, track), (arc, tint)] {
       shape.path = path.cgPath
       shape.fillColor = nil
       shape.strokeColor = color.cgColor
-      shape.lineWidth = 1.5
+      shape.lineWidth = 2.4
       shape.lineCap = .round
       shape.frame = bounds
       layer?.addSublayer(shape)
     }
     if glow {
       arc.shadowColor = tint.cgColor
-      arc.shadowOpacity = 0.45
-      arc.shadowRadius = 3
+      arc.shadowOpacity = 0.6
+      arc.shadowRadius = 4
       arc.shadowOffset = .zero
     }
   }
@@ -1002,6 +1170,7 @@ final class CardManager {
       self.cards.removeAll { $0 === card }
       self.layout()
     }
+    card.onResize = { [weak self] in self?.layout() }
     card.onDrag = { [weak self] dragged in self?.follow(dragged) }
     card.onDragEnd = { [weak self] dragged in self?.dragEnded(dragged) }
     cards.insert(card, at: 0)
@@ -1045,7 +1214,7 @@ final class CardManager {
     }
   }
 
-  /// Where the stack was dropped becomes its place, kept for later cards until "원래 위치로".
+  /// Where the stack was dropped becomes its place, kept for later cards until an anchor is picked.
   private func dragEnded(_ dragged: CardPanel) {
     let frames = targetFrames()
     guard let i = cards.firstIndex(where: { $0 === dragged }) else { return }

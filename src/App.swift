@@ -273,14 +273,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   @objc private func sendTest() {
-    sendNotification(T("테스트 알림"), T("알림이 화면 가운데에 표시됩니다."))
+    // Long on purpose: the card shows four lines and folds the rest, and this is where that shows.
+    sendNotification(T("테스트 알림"), T("카드 위에서 스크롤하면 그 자리에서 전문이 펼쳐집니다. 본문이 길면 네 줄까지만 보여주고 나머지는 줄임표로 접습니다. 이 문장은 그 동작을 눈으로 확인하려고 일부러 길게 쓴 것이고, 카드 폭에 맞춰 줄이 나뉘는 모습도 함께 볼 수 있습니다. 잘리는 지점은 카드 폭과 글자 크기에 따라 달라지고, 크기를 크게로 바꾸면 같은 문장이라도 더 일찍 잘립니다. 원문 전체는 알림 센터에 그대로 남아 있습니다."))
   }
 
   /// Five in a row, 1.2 s apart: they share the app, so they stack into one card.
   @objc private func sendFiveTests() {
     for i in 1...5 {
       DispatchQueue.main.asyncAfter(deadline: .now() + Double(i - 1) * 1.2) { [weak self] in
-        self?.sendNotification(T("테스트 알림 %d/5", i), T("연속으로 온 알림은 카드 하나에 묶입니다."))
+        // The third one is long, so a group shows both the stacking and the fold in one card.
+        self?.sendNotification(T("테스트 알림 %d/5", i),
+                               i == 3 ? T("카드 위에서 스크롤하면 그 자리에서 전문이 펼쳐집니다. 본문이 길면 네 줄까지만 보여주고 나머지는 줄임표로 접습니다. 이 문장은 그 동작을 눈으로 확인하려고 일부러 길게 쓴 것이고, 카드 폭에 맞춰 줄이 나뉘는 모습도 함께 볼 수 있습니다. 잘리는 지점은 카드 폭과 글자 크기에 따라 달라지고, 크기를 크게로 바꾸면 같은 문장이라도 더 일찍 잘립니다. 원문 전체는 알림 센터에 그대로 남아 있습니다.") : T("연속으로 온 알림은 카드 하나에 묶입니다."))
       }
     }
   }

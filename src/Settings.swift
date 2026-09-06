@@ -112,6 +112,31 @@ enum CardSize: String, CaseIterable {
   }
 }
 
+/// The card's look. Brightness is a separate question (that is 밝기), and every theme answers it —
+/// each one has a light and a dark face rather than forcing one.
+enum Surface: String, CaseIterable {
+  /// The system's own glass, refracting the desktop behind it.
+  case glass
+  /// Glass with two soft clouds of the app's warm and cool tones drifting behind the text.
+  case aurora
+  /// A dark slab lit from its own edge: the accent colour glows around the card and along its rim.
+  case neon
+  /// Colour taken out. Grey glass, silver rim, the app's hue ignored.
+  case mono
+
+  var label: String {
+    switch self {
+    case .glass: return T("유리")
+    case .aurora: return T("오로라")
+    case .neon: return T("네온")
+    case .mono: return T("모노")
+    }
+  }
+
+  /// Whether the desktop shows through the card body itself.
+  var isTranslucent: Bool { self != .neon }
+}
+
 /// User settings, kept in UserDefaults. Setting one calls `onChange` so the cards move at once.
 final class Settings {
   static let shared = Settings()
@@ -154,6 +179,12 @@ final class Settings {
     set { defaults.set(newValue, forKey: "menuBarHidden"); onMenuBarChange?() }
   }
 
+  /// Glass or a plain opaque card. Changing it drops the cards on screen; the next ones are built anew.
+  var surface: Surface {
+    get { Surface(rawValue: defaults.string(forKey: "surface") ?? "") ?? .glass }
+    set { defaults.set(newValue.rawValue, forKey: "surface"); onSizeChange?() }
+  }
+
   /// The language every visible string is drawn in. `system` follows the Mac's own language list.
   var language: String {
     get { defaults.string(forKey: "language") ?? Language.system.rawValue }
@@ -176,18 +207,32 @@ final class Settings {
   static let sounds = ["Basso", "Blow", "Bottle", "Frog", "Funk", "Glass", "Hero", "Morse",
                        "Ping", "Pop", "Purr", "Sosumi", "Submarine", "Tink"]
 
+  /// Picking a spot means that spot. Whatever the stack was dragged to is forgotten here, so the
+  /// nine cells always land exactly where they say and nothing has to be reset by hand.
   var anchor: Anchor {
     get { Anchor(rawValue: defaults.string(forKey: "anchor") ?? "") ?? .center }
-    set { defaults.set(newValue.rawValue, forKey: "anchor"); onChange?() }
+    set {
+      defaults.set(newValue.rawValue, forKey: "anchor")
+      defaults.removeObject(forKey: "offsetX")
+      defaults.removeObject(forKey: "offsetY")
+      onChange?()
+    }
   }
 
   /// Display ID of the chosen screen; 0 means the primary display (the one with the menu bar).
+  /// Moving to another display drops the drag too: an offset measured on one screen means nothing
+  /// on another.
   var displayID: CGDirectDisplayID {
     get { CGDirectDisplayID(defaults.integer(forKey: "displayID")) }
-    set { defaults.set(Int(newValue), forKey: "displayID"); onChange?() }
+    set {
+      defaults.set(Int(newValue), forKey: "displayID")
+      defaults.removeObject(forKey: "offsetX")
+      defaults.removeObject(forKey: "offsetY")
+      onChange?()
+    }
   }
 
-  /// How far the user dragged the stack away from its anchor. "원래 위치로" zeroes it.
+  /// How far the user dragged the stack away from its anchor. Choosing an anchor clears it.
   var offset: NSPoint {
     get { NSPoint(x: defaults.double(forKey: "offsetX"), y: defaults.double(forKey: "offsetY")) }
     set {
@@ -314,19 +359,38 @@ final class PreviewCard: NSView {
     // Shadow + glass base, the same restraint as the real card.
     NSGraphicsContext.saveGraphicsState()
     let shadow = NSShadow()
-    shadow.shadowColor = NSColor.black.withAlphaComponent(CGFloat(palette.shadowOpacity))
-    shadow.shadowBlurRadius = cardH * 0.18
+    shadow.shadowColor = palette.glow.withAlphaComponent(CGFloat(palette.shadowOpacity))
+    shadow.shadowBlurRadius = cardH * (Settings.shared.surface == .neon ? 0.28 : 0.18)
     shadow.shadowOffset = NSSize(width: 0, height: -cardH * 0.06)
     shadow.set()
-    (palette.isDark ? NSColor(white: 0.16, alpha: 0.92) : NSColor(white: 0.99, alpha: 0.94)).setFill()
+    let solid = !Settings.shared.surface.isTranslucent
+    if solid {
+      palette.solidFill.setFill()
+    } else {
+      (palette.isDark ? NSColor(white: 0.16, alpha: 0.92) : NSColor(white: 0.99, alpha: 0.94)).setFill()
+    }
     cardPath.fill()
     NSGraphicsContext.restoreGraphicsState()
 
-    NSGraphicsContext.saveGraphicsState()
-    cardPath.addClip()
-    palette.wash.setFill()
-    card.fill()
-    NSGraphicsContext.restoreGraphicsState()
+    if !solid {
+      NSGraphicsContext.saveGraphicsState()
+      cardPath.addClip()
+      palette.wash.setFill()
+      card.fill()
+      NSGraphicsContext.restoreGraphicsState()
+    }
+    if Settings.shared.surface == .aurora {
+      // The same two clouds the card draws, so the preview is not a prettier lie.
+      NSGraphicsContext.saveGraphicsState()
+      cardPath.addClip()
+      for (colour, at) in [(palette.warm, NSPoint(x: card.minX + card.width * 0.18, y: card.maxY)),
+                           (palette.cool, NSPoint(x: card.minX + card.width * 0.92, y: card.minY))] {
+        NSGradient(starting: colour.withAlphaComponent(palette.blobAlpha),
+                   ending: colour.withAlphaComponent(0))?
+          .draw(fromCenter: at, radius: 0, toCenter: at, radius: card.width * 0.6, options: [])
+      }
+      NSGraphicsContext.restoreGraphicsState()
+    }
     palette.rim[0].setStroke()
     cardPath.lineWidth = 1
     cardPath.stroke()
@@ -380,7 +444,7 @@ final class SettingsWindow: NSWindowController {
   private let preview = PreviewCard()
   private let screenPopup = NSPopUpButton()
   private let tabView = NSTabView()
-  private static let tabKeys = ["위치", "테마", "설정", "정보"]
+  private static let tabKeys = ["모양", "설정", "정보"]
   private let tabPicker = NSSegmentedControl(labels: SettingsWindow.tabKeys, trackingMode: .selectOne,
                                              target: nil, action: nil)
   private var anchorRows: [NSSegmentedControl] = []
@@ -392,6 +456,8 @@ final class SettingsWindow: NSWindowController {
   private let themeControl = NSSegmentedControl(labels: Theme.allCases.map(\.label), trackingMode: .selectOne,
                                                 target: nil, action: nil)
   private var accentControl: NSSegmentedControl!
+  private let surfaceControl = NSSegmentedControl(labels: Surface.allCases.map(\.label), trackingMode: .selectOne,
+                                                  target: nil, action: nil)
   private let soundPopup = NSPopUpButton()
   private let languagePopup = NSPopUpButton()
   private let loginCheck = NSButton(checkboxWithTitle: T("로그인 시 실행"), target: nil, action: nil)
@@ -464,6 +530,9 @@ final class SettingsWindow: NSWindowController {
     durationLabel.widthAnchor.constraint(equalToConstant: 34).isActive = true
     themeControl.target = self
     themeControl.action = #selector(themeChanged)
+    surfaceControl.target = self
+    surfaceControl.action = #selector(surfaceChanged)
+    surfaceControl.segmentDistribution = .fillEqually
     themeControl.segmentDistribution = .fillEqually
     sizeControl.segmentDistribution = .fillEqually
     accentControl = accentPicker()
@@ -530,22 +599,22 @@ final class SettingsWindow: NSWindowController {
     tabPicker.target = self
     tabPicker.action = #selector(tabChanged)
     tabPicker.selectedSegment = 0
-    tabView.addTabViewItem(tab(T("위치"), tabContent([
+    // Everything that decides how a card looks and where it lands, plus the buttons that show it:
+    // choosing and checking belong on the same page.
+    tabView.addTabViewItem(tab(T("모양"), tabContent([
       field(T("모니터"), screenPopup),
       field(T("위치"), anchorGrid()),
-      field(nil, button(T("원래 위치로"), #selector(resetPosition))),
       field(T("크기"), sizeControl),
       field(T("지속 시간"), duration),
-    ])))
-    tabView.addTabViewItem(tab(T("테마"), tabContent([
-      field(T("테마"), themeControl),
+      field(T("밝기"), themeControl),
+      field(T("테마"), surfaceControl),
       field(T("강조색"), accentControl),
       field(T("소리"), soundPopup),
+      field(T("알람 테스트"), tests),
+      field(nil, button(T("모든 알람 닫기"), #selector(dismissAll))),
     ])))
     tabView.addTabViewItem(tab(T("설정"), tabContent([
       field(T("언어"), languagePopup),
-      field(T("알람 테스트"), tests),
-      field(nil, button(T("모든 알람 닫기"), #selector(dismissAll))),
       field(nil, loginCheck),
       field(nil, menuBarField()),
       field(nil, updateCheck),
@@ -606,8 +675,28 @@ final class SettingsWindow: NSWindowController {
   private func tab(_ title: String, _ view: NSView) -> NSTabViewItem {
     let item = NSTabViewItem()
     item.label = title
-    item.view = view
+    item.view = scrollable(view)
     return item
+  }
+
+  /// A tab taller than the screen has to stay reachable. The scroller only appears when the content
+  /// does not fit, so on a big display nothing about the window changes.
+  private func scrollable(_ content: NSView) -> NSView {
+    let scroll = NSScrollView()
+    scroll.drawsBackground = false
+    scroll.hasVerticalScroller = true
+    scroll.autohidesScrollers = true
+    scroll.verticalScrollElasticity = .allowed
+    scroll.horizontalScrollElasticity = .none
+    scroll.documentView = content
+    content.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      content.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+      content.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
+      content.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+    ])
+    scroll.contentView.postsBoundsChangedNotifications = false
+    return scroll
   }
 
   /// A tab's body: full-width fields stacked from the top, with an optional block pinned to the bottom.
@@ -892,6 +981,7 @@ final class SettingsWindow: NSWindowController {
     durationSlider.doubleValue = settings.duration
     durationLabel.stringValue = T("%d초", Int(settings.duration.rounded()))
     themeControl.selectedSegment = Theme.allCases.firstIndex(of: settings.theme) ?? 0
+    surfaceControl.selectedSegment = Surface.allCases.firstIndex(of: settings.surface) ?? 0
     accentControl.selectedSegment = Accent.allCases.firstIndex(of: settings.accent) ?? 0
     soundPopup.selectItem(at: max(0, ([""] + Settings.sounds).firstIndex(of: settings.sound) ?? 0))
     tabPicker.selectedSegment = max(0, tabView.indexOfTabViewItem(tabView.selectedTabViewItem ?? tabView.tabViewItems[0]))
@@ -911,11 +1001,17 @@ final class SettingsWindow: NSWindowController {
     fitToTab()
   }
 
-  /// The height the selected tab's own contents ask for, plus whatever the box itself takes.
+  /// The height the selected tab's own contents ask for, plus whatever the box itself takes, and
+  /// never more than the screen can hold: the rest of that tab scrolls.
   private func selectedTabHeight() -> CGFloat {
-    guard let view = tabView.selectedTabViewItem?.view else { return tabHeight.constant }
+    guard let content = (tabView.selectedTabViewItem?.view as? NSScrollView)?.documentView
+            ?? tabView.selectedTabViewItem?.view else { return tabHeight.constant }
     let inset = max(0, tabView.bounds.height - tabView.contentRect.height)
-    return view.fittingSize.height + inset
+    let screen = window?.screen ?? NSScreen.main
+    // What the window spends on the preview, the tab picker and its margins.
+    let chrome: CGFloat = 400
+    let room = (screen?.visibleFrame.height ?? 900) - chrome
+    return min(content.fittingSize.height + inset, max(240, room))
   }
 
   /// Grows or shrinks the window to the selected tab, keeping the title bar where it is.
@@ -966,6 +1062,12 @@ final class SettingsWindow: NSWindowController {
     durationLabel.stringValue = T("%d초", Int(seconds))
   }
 
+  @objc private func surfaceChanged() {
+    settings.surface = Surface.allCases[max(0, surfaceControl.selectedSegment)]
+    preview.apply()
+  }
+
+
   @objc private func themeChanged() {
     settings.theme = Theme.allCases[themeControl.selectedSegment]
     preview.apply()
@@ -982,7 +1084,6 @@ final class SettingsWindow: NSWindowController {
     if !name.isEmpty { NSSound(named: name)?.play() }   // preview it
   }
 
-  @objc private func resetPosition() { settings.offset = .zero }
 
   @objc private func loginChanged() {
     do {

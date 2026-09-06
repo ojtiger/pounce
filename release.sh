@@ -20,18 +20,6 @@ ok()   { printf '\033[32m✓ %s\033[0m\n' "$*"; }
 ask()  { local a; read -r -p "$(printf '\033[1m? %s [y/N] \033[0m' "$1")" a; [[ "$a" == [yY] ]]; }
 higher() { [[ "$1" != "$2" && "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" == "$1" ]]; }
 
-# 이 맥에 있는 서명 인증서 중 팀이 맞는 것의 해시. 같은 애플 ID 라도 팀이 여럿이면
-# 인증서도 여럿이고, Makefile 은 그냥 첫 번째를 집는다. 팀으로 골라야 한다.
-identity_for_team() {
-  local team=$1 line hash cn ou
-  while IFS= read -r line; do
-    hash=${line%% *}; cn=${line#* }
-    ou=$(security find-certificate -c "$cn" -p 2>/dev/null | openssl x509 -noout -subject 2>/dev/null |
-         tr ',' '\n' | sed -n 's/^ *OU=//p' | head -1)
-    [[ "$ou" == "$team" ]] && { printf '%s' "$hash"; return 0; }
-  done < <(security find-identity -v -p codesigning | sed -n 's/^ *[0-9]*) \([A-F0-9]*\) "\(.*\)"$/\1 \2/p')
-  return 1
-}
 
 # 버전은 빌드 전에 파일에 박힌다. 중간에 죽으면 그대로 남아 다음 실행이 꼬이므로 되돌린다.
 bumped=false
@@ -95,7 +83,8 @@ bumped=true
 ok "앱과 소개 페이지에 $next 반영"
 
 IDENTITY_ARG=""
-if hash=$(identity_for_team "$RELEASE_TEAM"); then
+hash=$(./signing-identity.sh "$RELEASE_TEAM")
+if [[ "$hash" != "-" ]]; then
   IDENTITY_ARG="IDENTITY=$hash"
   ok "서명 인증서: 팀 $RELEASE_TEAM (${hash:0:8}…)"
 else
@@ -134,7 +123,7 @@ ok "push 완료"
 
 step "GitHub 릴리스"
 if command -v gh >/dev/null 2>&1; then
-  notes=$(git log --format='- %s' "$(git describe --tags --abbrev=0 "v$next^" 2>/dev/null)".."v$next" 2>/dev/null | grep -vx "- $next" || true)
+  notes=$(git log --format='- %s' "$(git describe --tags --abbrev=0 "v$next^" 2>/dev/null)".."v$next" 2>/dev/null | grep -vx -- "- $next" || true)
   gh release create "v$next" "$ZIP" --repo "$REPO" --title "Pounce $next" --notes "${notes:-- $next}"
   ok "릴리스 v$next 생성"
 else

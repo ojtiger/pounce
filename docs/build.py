@@ -29,6 +29,8 @@ LANGS = {
     "faq": [
       ("맥 설정에서 알림창 위치 못 바꾸나요?",
        "못 바꿉니다. 애플이 오른쪽 위로 박아뒀고 설정에 그런 항목이 없습니다. 그래서 만들었습니다."),
+      ("긴 알림은 끝까지 어떻게 보나요?",
+       "카드 위에서 스크롤하면 접혀 있던 나머지가 그 자리에서 펼쳐집니다. 읽는 동안에는 사라지지 않고, 마우스를 치우면 평소처럼 물러납니다."),
       ("가운데에 뜨면 거슬리지 않나요?",
        "시간 지나면 알아서 사라집니다. 마우스를 올려두면 안 사라지고 기다립니다. 그래도 거슬리면 아래 가운데로 내리세요. 자리는 아홉 개 다 됩니다."),
       ("알림 내용이 밖으로 나가나요?",
@@ -53,6 +55,8 @@ LANGS = {
     "faq": [
       ("Can I change the notification position in macOS settings?",
        "You cannot. Apple pins banners to the top right and there is no setting for it. That is why this app exists."),
+      ("How do I read a long notification in full?",
+       "Scroll on the card and the folded part opens where it stands. It waits while you read and leaves once the pointer does."),
       ("Is a card in the middle of the screen distracting?",
        "It leaves on its own after a few seconds, and it waits while your pointer is on it. If it still gets in the way, move it to the bottom center. There are nine spots."),
       ("Does anything leave my Mac?",
@@ -77,6 +81,8 @@ LANGS = {
     "faq": [
       ("Mac の設定で通知の位置を変えられませんか？",
        "変えられません。Apple がバナーを右上に固定していて、その設定項目がありません。そのために作りました。"),
+      ("長い通知は最後まで読めますか？",
+       "カードの上でスクロールすると、たたまれていた残りがその場で開きます。読んでいる間は消えず、ポインタを外すといつも通り引っ込みます。"),
       ("中央に出ると邪魔になりませんか？",
        "時間が経てば自動で消えます。ポインタを乗せている間は消えずに待ちます。それでも気になるなら下中央へ。位置は九か所から選べます。"),
       ("通知の内容が外部に送信されますか？",
@@ -101,6 +107,8 @@ LANGS = {
     "faq": [
       ("Mac 系统设置里能改通知位置吗？",
        "不能。苹果把横幅固定在右上角，设置里没有这一项。所以才有了这个应用。"),
+      ("通知太长，怎么看全文？",
+       "在卡片上滚动，折叠的部分就会当场展开。阅读时不会消失，移开鼠标后照常收起。"),
       ("显示在正中间会不会碍事？",
        "过几秒会自动消失，鼠标放上去就会等你。还是觉得碍事，就挪到底部居中，九个位置随便选。"),
       ("通知内容会被传到外面吗？",

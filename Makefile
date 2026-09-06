@@ -1,10 +1,11 @@
 APP      := Pounce
 BUNDLE   := $(APP).app
-# Apple Development identity when the Mac has one (keeps TCC permissions stable across builds),
-# otherwise ad-hoc so `make install` works on any Mac with Xcode.
-# Picked by SHA-1 hash, not by name: a Mac with two "Apple Development" certs makes the name ambiguous.
-# Override with `make install IDENTITY=<hash>` to pin a specific one.
-IDENTITY ?= $(or $(shell security find-identity -v -p codesigning 2>/dev/null | awk '/Apple Development/ {print $$2; exit}'),-)
+# The signing identity of one team, on every Mac and for every build: releases and local installs
+# must look like the same app to macOS, or the granted permissions fall away and the app refuses to
+# update itself. signing-identity.sh picks by the certificate's team, falling back to ad-hoc.
+# Override with `make install IDENTITY=<hash>` or `RELEASE_TEAM=<team> make install`.
+RELEASE_TEAM ?= VXR4D4G8N4
+IDENTITY ?= $(shell ./signing-identity.sh $(RELEASE_TEAM))
 SRC      := $(wildcard src/*.swift)
 
 all: build

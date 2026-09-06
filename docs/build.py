@@ -308,7 +308,35 @@ var COPY = %(copyJs)s, COPIED = %(copiedJs)s;
 </html>
 """
 
+SITEMAP = """<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xhtml="http://www.w3.org/1999/xhtml">
+%s</urlset>
+"""
+
+
+def sitemap():
+    """네 장을 서로의 번역판으로 신고한다. 한 장만 찾아도 나머지가 딸려 온다."""
+    alts = "".join(
+        '    <xhtml:link rel="alternate" hreflang="%s" href="%s"/>\n' % (o["hreflang"], SITE + o["dir"])
+        for o in LANGS.values())
+    alts += '    <xhtml:link rel="alternate" hreflang="x-default" href="%s"/>\n' % SITE
+    entries = ""
+    for L in LANGS.values():
+        entries += "  <url>\n    <loc>%s</loc>\n%s  </url>\n" % (SITE + L["dir"], alts)
+    return SITEMAP % entries
+
+
+ROBOTS = """User-agent: *
+Allow: /
+
+Sitemap: %ssitemap.xml
+""" % SITE
+
 here = pathlib.Path(__file__).resolve().parent
+(here / "sitemap.xml").write_text(sitemap(), encoding="utf-8")
+(here / "robots.txt").write_text(ROBOTS, encoding="utf-8")
+print("wrote sitemap.xml, robots.txt")
 for code, L in LANGS.items():
     target = here / L["dir"] / "index.html"
     target.parent.mkdir(parents=True, exist_ok=True)

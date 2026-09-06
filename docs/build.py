@@ -10,7 +10,7 @@ SITE = "https://ojtiger.github.io/pounce/"
 REPO = "https://github.com/ojtiger/pounce"
 LATEST = REPO + "/releases/latest"
 BREW = "brew install --cask ojtiger/tap/pounce"
-VERSION = "0.3.4"
+VERSION = "0.9.0"
 
 LANGS = {
   "ko": {

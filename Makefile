@@ -76,7 +76,7 @@ package:
 	swiftc $(SRC) -o $(DIST)/$(APP)-x86_64 -O -parse-as-library -target x86_64-apple-macos14.0
 	lipo -create -output $(BUNDLE)/Contents/MacOS/$(APP) $(DIST)/$(APP)-arm64 $(DIST)/$(APP)-x86_64
 	@rm $(DIST)/$(APP)-arm64 $(DIST)/$(APP)-x86_64
-	codesign -fs "$(IDENTITY)" $(BUNDLE)
+	codesign -fs "$(IDENTITY)" --timestamp $(BUNDLE)
 	ditto -c -k --keepParent $(BUNDLE) $(ZIP)
 	@echo "packaged $(ZIP)"
 	@shasum -a 256 $(ZIP)

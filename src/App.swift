@@ -327,6 +327,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     sendNotification(title, T("닫을 때까지 남습니다."), pinned: true)
   }
 
+  /// The app that just replaced itself comes back here. The version it was before is on disk, so
+  /// one notification tells the user what happened; the update itself needed no attention.
+  private func announceUpdateIfJustUpdated() {
+    let now = Updater.currentVersion
+    let key = "lastRunVersion"
+    let previous = UserDefaults.standard.string(forKey: key)
+    UserDefaults.standard.set(now, forKey: key)
+    guard let previous, previous != now,
+          now.compare(previous, options: .numeric) == .orderedDescending else { return }
+    logI("updated \(previous) -> \(now)")
+    sendNotification(T("Pounce %@", now), T("자동으로 업데이트되었습니다."))
+  }
+
   /// A notification carrying the system's own buttons, including a reply field. Pressing one on the
   /// card brings the real banner onto the card's spot, which is the only way that inline UI can be used.
   private static let actionCategory = "pounce.test.actions"
@@ -349,9 +362,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// The automatic check: once a day at most, announced as a notification like any other, so it lands
   /// in a card. Installing stays a button press in 설정 > 정보.
   private func startUpdateChecks() {
+    // A new version installs itself and the app comes back on it. Nothing to press.
     Updater.shared.onNewVersion = { [weak self] release in
-      self?.sendNotification(T("새 버전 %@", release.version), T("설정 > 정보에서 업데이트할 수 있습니다."))
+      Updater.shared.install(release, progress: { _ in }) { result in
+        switch result {
+        case .success:
+          Updater.shared.relaunch()
+        case .failure(let error):
+          // Could not put it in place (no write access, a broken download): say so and let the
+          // button in 정보 be the way through.
+          logE("automatic update failed: \(error.localizedDescription)")
+          self?.sendNotification(T("새 버전 %@", release.version), T("설정 > 정보에서 업데이트할 수 있습니다."))
+        }
+      }
     }
+    announceUpdateIfJustUpdated()
     // A few seconds in: the watcher and the menu bar come first.
     DispatchQueue.main.asyncAfter(deadline: .now() + 5) { Updater.shared.checkInBackground() }
     updateTimer = Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { _ in

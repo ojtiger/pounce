@@ -165,8 +165,8 @@ final class Settings {
     }
   }
 
-  /// Whether Pounce looks for a newer published build on its own. The check only reports; installing
-  /// is still a button press in 정보.
+  /// Whether Pounce keeps itself up to date: it looks for a newer published build once a day and,
+  /// finding one, installs it and comes back on it.
   var autoUpdate: Bool {
     get { defaults.object(forKey: "autoUpdate") as? Bool ?? true }
     set { defaults.set(newValue, forKey: "autoUpdate") }
@@ -397,7 +397,7 @@ final class SettingsWindow: NSWindowController {
   private let loginCheck = NSButton(checkboxWithTitle: T("로그인 시 실행"), target: nil, action: nil)
   private let debugCheck = NSButton(checkboxWithTitle: T("디버그 로그"), target: nil, action: nil)
   private let menuBarCheck = NSButton(checkboxWithTitle: T("메뉴 막대에서 숨기기"), target: nil, action: nil)
-  private let updateCheck = NSButton(checkboxWithTitle: T("새 버전 자동 확인"), target: nil, action: nil)
+  private let updateCheck = NSButton(checkboxWithTitle: T("자동 업데이트"), target: nil, action: nil)
   private var tabHeight: NSLayoutConstraint!
   private let trustLabel = NSTextField(labelWithString: "")
   private var trustTimer: Timer?

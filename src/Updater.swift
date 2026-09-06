@@ -15,7 +15,12 @@ struct Release {
 /// build. Nothing is installed without the user pressing the button; the setting only governs the check.
 final class Updater {
   static let shared = Updater()
-  private static let feed = URL(string: "https://api.github.com/repos/ojtiger/pounce/releases/latest")!
+  /// The releases feed rather than the API: api.github.com allows 60 anonymous calls an hour per
+  /// address, which an office sharing one address burns through, and the check then fails for
+  /// everyone behind it. The feed is plain HTTP with no such limit.
+  private static let feed = URL(string: "https://github.com/ojtiger/pounce/releases.atom")!
+  private static let repo = "https://github.com/ojtiger/pounce"
+
   static var currentVersion: String {
     Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
   }
@@ -33,27 +38,38 @@ final class Updater {
   func check(_ done: @escaping (Result<Release, Error>) -> Void) {
     var request = URLRequest(url: Self.feed)
     request.timeoutInterval = 15
-    request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-    URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+    request.cachePolicy = .reloadIgnoringLocalCacheData
+    URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
       guard let self else { return }
       DispatchQueue.main.async {
-        guard let data, let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let tag = json["tag_name"] as? String,
-              let page = (json["html_url"] as? String).flatMap(URL.init(string:)) else {
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard let data, status == 200, let feed = String(data: data, encoding: .utf8),
+              let version = Self.newestVersion(in: feed) else {
           let why = error?.localizedDescription ?? T("릴리스 정보를 읽을 수 없습니다")
-          logE("update check failed: \(why)")
+          logE("update check failed: status=\(status) \(why)")
           done(.failure(self.fail(why)))
           return
         }
-        let version = tag.trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
-        let assets = json["assets"] as? [[String: Any]] ?? []
-        let zip = assets.compactMap { $0["browser_download_url"] as? String }
-          .first { $0.hasSuffix(".zip") }.flatMap(URL.init(string:))
-        let release = Release(version: version, page: page, zip: zip)
+        // Every release is published the same way, so the page and the file follow from the tag.
+        let page = URL(string: "\(Self.repo)/releases/tag/v\(version)")!
+        let zip = URL(string: "\(Self.repo)/releases/download/v\(version)/Pounce-\(version).zip")
         logI("update check: published \(version), running \(Self.currentVersion)")
-        done(.success(release))
+        done(.success(Release(version: version, page: page, zip: zip)))
       }
     }.resume()
+  }
+
+  /// The newest version in the feed. Entries come newest first, but the highest number wins anyway
+  /// so a re-published older tag cannot drag everyone backwards.
+  private static func newestVersion(in feed: String) -> String? {
+    let pattern = #"/releases/tag/v(\d+\.\d+\.\d+)"#
+    guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+    let range = NSRange(feed.startIndex..., in: feed)
+    let versions = regex.matches(in: feed, range: range).compactMap { match -> String? in
+      guard let r = Range(match.range(at: 1), in: feed) else { return nil }
+      return String(feed[r])
+    }
+    return versions.max { $0.compare($1, options: .numeric) == .orderedAscending }
   }
 
   /// The scheduled check: at most once a day, only while the setting is on, and it announces a

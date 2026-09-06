@@ -99,6 +99,12 @@ private let table = """
 언어|Language|言語|语言|語言|Idioma|Langue|Sprache|Lingua|Idioma|Язык|Taal|Język|Dil|Ngôn ngữ|Bahasa
 알람 테스트|Test notification|通知テスト|通知测试|通知測試|Notificación de prueba|Notification de test|Testmitteilung|Notifica di prova|Notificação de teste|Тестовое уведомление|Testmelding|Powiadomienie testowe|Test bildirimi|Thông báo thử|Notifikasi uji
 5회|×5|×5|×5|×5|×5|×5|×5|×5|×5|×5|×5|×5|×5|×5|×5
+액션|Actions|アクション|操作|操作|Acciones|Actions|Aktionen|Azioni|Ações|Действия|Acties|Akcje|Eylemler|Tác vụ|Tindakan
+액션 테스트|Action test|アクションのテスト|操作测试|操作測試|Prueba de acciones|Test des actions|Aktionstest|Test azioni|Teste de ações|Проверка действий|Actietest|Test akcji|Eylem testi|Thử tác vụ|Uji tindakan
+답장 버튼을 눌러 보세요.|Try the reply button.|返信ボタンを押してみてください。|试试回复按钮。|試試回覆按鈕。|Prueba el botón de responder.|Essayez le bouton de réponse.|Probier die Antwort-Taste.|Prova il pulsante di risposta.|Experimente o botão de responder.|Нажмите кнопку ответа.|Probeer de antwoordknop.|Wypróbuj przycisk odpowiedzi.|Yanıt düğmesini deneyin.|Thử nút trả lời.|Coba tombol balas.
+답장|Reply|返信|回复|回覆|Responder|Répondre|Antworten|Rispondi|Responder|Ответить|Antwoorden|Odpowiedz|Yanıtla|Trả lời|Balas
+메시지|Message|メッセージ|消息|訊息|Mensaje|Message|Nachricht|Messaggio|Mensagem|Сообщение|Bericht|Wiadomość|Mesaj|Tin nhắn|Pesan
+보기|View|表示|查看|檢視|Ver|Voir|Anzeigen|Mostra|Ver|Показать|Bekijken|Pokaż|Göster|Xem|Lihat
 보내기|Send|送信|发送|發送|Enviar|Envoyer|Senden|Invia|Enviar|Отправить|Stuur|Wyślij|Gönder|Gửi|Kirim
 고정|Pinned|固定|固定|固定|Fijada|Épinglée|Fixiert|Fissata|Fixada|Закреплённое|Vastgezet|Przypięte|Sabit|Ghim|Disematkan
 모든 알람 닫기|Close all|すべて閉じる|全部关闭|全部關閉|Cerrar todo|Tout fermer|Alle schließen|Chiudi tutto|Fechar tudo|Закрыть все|Alles sluiten|Zamknij wszystkie|Tümünü kapat|Đóng tất cả|Tutup semua

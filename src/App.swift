@@ -17,7 +17,8 @@ struct Main {
 final class AppDelegate: NSObject, NSApplicationDelegate {
   private let watcher = Watcher()
   private var seen = [String: Date]()
-  private lazy var cards = CardManager(handlers: CardHandlers(
+  // The type is spelled out because one of the handlers below reaches back into `cards`.
+  private lazy var cards: CardManager = CardManager(handlers: CardHandlers(
     activate: { notice in
       // Forward the click to the hidden system banner so the source app opens what it wanted.
       // Press the hidden banner so the app opens exactly what the notification pointed at.
@@ -32,10 +33,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       }
     },
     action: { [weak self] notice, action in
-      // A button may open inline UI (e.g. reply) inside the system banner, so show it again first.
-      guard let element = notice.element else { return }
-      self?.watcher.release(element)
-      logD("action \"\(action.label)\" result=\(element.perform(action.name).name)")
+      guard let self, let element = notice.element else { return }
+      let card = self.cards.cardFrame(forKey: notice.key).map(Self.axRect(of:))
+      let result = element.perform(action.name)
+      logI("action \"\(action.label)\" on \(notice.app) result=\(result.name)")
+      // Some buttons finish the notification off (open the app, and the banner goes). Others open
+      // something the system draws inside the banner itself — a reply field, a menu — and the banner
+      // stays alive holding it. Whether the banner is still there a moment later tells us which
+      // happened, and if it is, it comes into view where the card was standing.
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+        guard let self else { return }
+        guard element.role != nil else {
+          self.rememberPlainAction(app: notice.app, label: action.label)
+          return
+        }
+        self.watcher.reveal(element, in: card)
+      }
     },
     close: { group in
       // Closing our card closes every system notification in the group, so alerts do not linger.
@@ -50,6 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     sendTest: { [weak self] in self?.sendTest() },
     sendFiveTests: { [weak self] in self?.sendFiveTests() },
     sendPinnedTest: { [weak self] in self?.sendPinnedTest() },
+    sendActionTest: { [weak self] in self?.sendActionTest() },
     dismissAll: { [weak self] in self?.dismissAll() },
     openLog: { [weak self] in self?.openLog() },
     openAccessibility: { [weak self] in self?.openAccessibility() },
@@ -82,6 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     watcher.onGone = { [weak self] key in self?.cards.remove(key: key) }
     watcher.onLostTrust = { [weak self] in self?.ensureTrustedThenStart() }
     startUpdateChecks()
+    registerActionCategory()
     let dnc = DistributedNotificationCenter.default()
     dnc.addObserver(self, selector: #selector(screenLocked), name: .init("com.apple.screenIsLocked"), object: nil)
     dnc.addObserver(self, selector: #selector(screenUnlocked), name: .init("com.apple.screenIsUnlocked"), object: nil)
@@ -154,11 +169,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in _ = self?.watcher.start() }
   }
 
+  /// AppKit screen coordinates (origin at the primary display's bottom-left, y up) to the AX and
+  /// CoreGraphics space windows are positioned in (origin top-left, y down).
+  private static func axRect(of rect: NSRect) -> CGRect {
+    CGRect(x: rect.minX, y: Settings.primaryScreen.frame.maxY - rect.maxY,
+           width: rect.width, height: rect.height)
+  }
+
+  // MARK: buttons that need no button
+
+  /// Buttons whose press simply finished the notification off, as "app|label". Clicking the card
+  /// already does that, so once a button is known to be one of those it stops being drawn: the card
+  /// keeps only the buttons that open something of their own, like a reply field.
+  ///
+  /// Learned rather than guessed. Accessibility hands every button over in the same shape —
+  /// "Name:답장\nTarget:0x0\nSelector:(null)" — with nothing to tell them apart, and the names
+  /// themselves are whatever the app chose, in whatever language.
+  private var plainActions: Set<String> {
+    get { Set(UserDefaults.standard.stringArray(forKey: "plainActions") ?? []) }
+    set { UserDefaults.standard.set(Array(newValue), forKey: "plainActions") }
+  }
+
+  private func plainKey(_ app: String, _ label: String) -> String { "\(app)|\(label)" }
+
+  private func rememberPlainAction(app: String, label: String) {
+    var known = plainActions
+    guard known.insert(plainKey(app, label)).inserted else { return }
+    plainActions = known
+    logI("button \"\(label)\" on \(app) only opens the app; hiding it from now on")
+  }
+
   // MARK: notices
 
   /// Both routes feed here; whichever reports a notification first wins.
   private func present(_ notice: Notice, via route: String) {
     var notice = notice
+    // Buttons that turned out to do no more than a click on the card never reach one again.
+    let plain = plainActions
+    if !plain.isEmpty { notice.actions.removeAll { plain.contains(plainKey(notice.app, $0.label)) } }
     // The pinned test came back from the system as an ordinary banner. Pin it here so the card
     // behaves as the test promises, whatever notification style the Mac gives Pounce.
     if notice.app == "Pounce", pendingPinnedTests.remove(notice.title) != nil {
@@ -202,6 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private func languageChanged() {
     statusItem?.menu = statusMenu()
     installMainMenu()
+    registerActionCategory()
     let previous = settingsWindowStore
     let tab = previous?.selectedTab ?? 0
     let wasVisible = previous?.window?.isVisible ?? false
@@ -239,7 +288,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// The real way: the app posts a notification under its own name, so the banner is Pounce's and
   /// our watcher intercepts it into a card with the app's icon. If notifications are off, we build the
   /// card directly so the test still works.
-  private func sendNotification(_ title: String, _ body: String, pinned: Bool = false) {
+  private func sendNotification(_ title: String, _ body: String, pinned: Bool = false, category: String? = nil) {
     let center = UNUserNotificationCenter.current()
     center.delegate = self
     center.getNotificationSettings { settings in
@@ -248,6 +297,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         content.title = title
         content.body = body
         content.sound = nil   // the card plays the chosen sound when it appears; no double
+        if let category { content.categoryIdentifier = category }
         let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         center.add(req) { error in if let error { logE("post notification: \(error)") } }
       }
@@ -275,6 +325,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     pendingPinnedTests.insert(title)
     DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in self?.pendingPinnedTests.remove(title) }
     sendNotification(title, T("닫을 때까지 남습니다."), pinned: true)
+  }
+
+  /// A notification carrying the system's own buttons, including a reply field. Pressing one on the
+  /// card brings the real banner onto the card's spot, which is the only way that inline UI can be used.
+  private static let actionCategory = "pounce.test.actions"
+
+  private func registerActionCategory() {
+    let reply = UNTextInputNotificationAction(identifier: "reply", title: T("답장"), options: [],
+                                              textInputButtonTitle: T("보내기"), textInputPlaceholder: T("메시지"))
+    UNUserNotificationCenter.current().setNotificationCategories([
+      UNNotificationCategory(identifier: Self.actionCategory, actions: [reply],
+                             intentIdentifiers: [], options: [])
+    ])
+  }
+
+  @objc private func sendActionTest() {
+    sendNotification(T("액션 테스트"), T("답장 버튼을 눌러 보세요."), category: Self.actionCategory)
   }
 
   @objc private func dismissAll() { cards.dismissAll() }
@@ -352,5 +419,16 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
   func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                               withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
     completionHandler([.banner, .list])
+  }
+
+  /// Only the test notification carries actions; the log line is how the reply is verified.
+  func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                              withCompletionHandler completionHandler: @escaping () -> Void) {
+    if let typed = response as? UNTextInputNotificationResponse {
+      logI("test reply: \"\(typed.userText)\"")
+    } else {
+      logI("test action: \(response.actionIdentifier)")
+    }
+    completionHandler()
   }
 }

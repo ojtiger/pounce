@@ -13,8 +13,9 @@ struct Notice {
   /// Notification UUID when known.
   let uuid: String
   let icon: NSImage?
-  /// Buttons the system banner offers (보기, 답장, 닫기 …).
-  let actions: [AXAction]
+  /// Buttons the system banner offers (보기, 답장, 닫기 …). Ones known not to work are dropped
+  /// before the card is built.
+  var actions: [AXAction]
   /// The display the banner appeared on (a CGDirectDisplayID); 0 when unknown. The card centres here,
   /// so it lands where the notification was, whatever the display arrangement or resolution.
   var screenNumber: UInt32 = 0
@@ -82,6 +83,8 @@ final class Watcher {
   private var releasedWindows = Set<AXUIElement>()
   /// When each parked window was first seen without banners; the grace period runs from here.
   private var emptySince = [AXUIElement: Date]()
+  /// Where a revealed window is being held instead of off-screen: the spot its card was using.
+  private var holdTargets = [AXUIElement: CGPoint]()
   private var loggedSkips = Set<AXUIElement>()
   private var seenKeys = [String: Date]()
   private var liveKeys = Set<String>()
@@ -135,6 +138,7 @@ final class Watcher {
     observedWindows.removeAll()
     loggedSkips.removeAll()
     emptySince.removeAll()
+    holdTargets.removeAll()
     releasedWindows.removeAll()
     seenKeys.removeAll()
     liveKeys.removeAll()
@@ -171,6 +175,45 @@ final class Watcher {
     }
   }
 
+  /// Bring the window holding this banner into view, centred on `card` (the card's rectangle in AX
+  /// coordinates). Pressing a banner button can open something the system draws inside its own
+  /// banner — a reply field, a menu — and the only way to use that is to look at the real thing,
+  /// so it comes to where the card was standing, wherever that was.
+  func reveal(_ banner: AXUIElement, in card: CGRect?) {
+    for w in Array(parkedOrigins.keys) {
+      releasedWindows.insert(w)
+      emptySince.removeValue(forKey: w)
+      guard let card, let bannerFrame = banner.frame(), let windowFrame = w.frame() else {
+        restore(w, reason: "revealed")
+        continue
+      }
+      // Centred on the card, then pulled back inside the display it landed on: a card in a corner
+      // would otherwise centre a wider banner half off the screen.
+      var wanted = CGRect(x: card.midX - bannerFrame.width / 2,
+                          y: card.midY - bannerFrame.height / 2,
+                          width: bannerFrame.width, height: bannerFrame.height)
+      wanted = Self.keptOnScreen(wanted)
+      let origin = CGPoint(x: wanted.minX - (bannerFrame.minX - windowFrame.minX),
+                           y: wanted.minY - (bannerFrame.minY - windowFrame.minY))
+      holdTargets[w] = origin
+      let r = w.setPosition(origin)
+      logI("reveal banner \(NSStringFromRect(wanted)) on card \(NSStringFromRect(card)) result=\(r.name)")
+    }
+  }
+
+  /// Pushes a rectangle back inside the display it sits on, leaving a small margin.
+  private static func keptOnScreen(_ frame: CGRect, margin: CGFloat = 8) -> CGRect {
+    var id = CGDirectDisplayID(0)
+    var count: UInt32 = 0
+    guard CGGetDisplaysWithPoint(CGPoint(x: frame.midX, y: frame.midY), 1, &id, &count) == .success,
+          count > 0, id != 0 else { return frame }
+    let bounds = CGDisplayBounds(id)
+    var out = frame
+    out.origin.x = min(max(out.minX, bounds.minX + margin), max(bounds.minX, bounds.maxX - out.width - margin))
+    out.origin.y = min(max(out.minY, bounds.minY + margin), max(bounds.minY, bounds.maxY - out.height - margin))
+    return out
+  }
+
   func restoreAll() {
     for (w, origin) in parkedOrigins {
       let r = w.setPosition(origin)
@@ -178,17 +221,9 @@ final class Watcher {
     }
     parkedOrigins.removeAll()
     emptySince.removeAll()
+    holdTargets.removeAll()
   }
 
-  /// Put the window holding this banner back on screen and stop hiding it until it empties.
-  /// Used when the user must see the system's own UI (a reply field, a lingering alert).
-  func release(_ banner: AXUIElement) {
-    for w in Array(parkedOrigins.keys) {
-      releasedWindows.insert(w)
-      emptySince.removeValue(forKey: w)
-      restore(w, reason: "released")
-    }
-  }
 
   // MARK: events
 
@@ -198,6 +233,7 @@ final class Watcher {
     if notification == kAXUIElementDestroyedNotification as String {
       releasedWindows.remove(element)
       emptySince.removeValue(forKey: element)
+      holdTargets.removeValue(forKey: element)
       if parkedOrigins.removeValue(forKey: element) != nil { observedWindows.remove(element) }
     }
     scan()
@@ -275,7 +311,8 @@ final class Watcher {
           if liveKeys.contains(key) { seenKeys[key] = now; continue }
           if let t = seenKeys[key], now.timeIntervalSince(t) < 60 { continue }
           seenKeys[key] = now
-          logI("notice app=\"\(notice.app)\" title=\"\(notice.title)\" alert=\(notice.isAlert) key=\(key.prefix(8))")
+          logI("notice app=\"\(notice.app)\" title=\"\(notice.title)\" alert=\(notice.isAlert) " +
+               "actions=[\(notice.actions.map(\.label).joined(separator: ","))] key=\(key.prefix(8))")
           onNotice?(notice)
         }
       }
@@ -360,7 +397,9 @@ final class Watcher {
 
   private func hold(_ window: AXUIElement, force: Bool) {
     guard let origin = parkedOrigins[window] else { return }
-    let target = CGPoint(x: origin.x, y: origin.y - K.parkOffset)
+    // A revealed window is held on its card's spot instead of off-screen, so the system's own
+    // reply field stays where the user is looking even if Notification Center re-lays it out.
+    let target = holdTargets[window] ?? CGPoint(x: origin.x, y: origin.y - K.parkOffset)
     if !force {
       guard let current = window.point() else {
         parkedOrigins.removeValue(forKey: window)
@@ -375,6 +414,7 @@ final class Watcher {
   }
 
   private func restore(_ window: AXUIElement, reason: String) {
+    holdTargets.removeValue(forKey: window)
     guard let origin = parkedOrigins[window] else { return }
     let r = window.setPosition(origin)
     logD("restore reason=\(reason) result=\(r.name)")
@@ -394,6 +434,7 @@ final class Watcher {
       banner.dump(into: &lines)
       logD("banner tree:\n" + lines.joined(separator: "\n"))
     }
+    logD("banner actions raw: \(banner.actions())")
     var fields = [String: String]()
     var others: [String] = []
     collectTexts(banner, depth: 0, fields: &fields, others: &others)

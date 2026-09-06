@@ -32,6 +32,8 @@ struct Palette {
   let textTertiary: NSColor
   let rim: [NSColor]
   let pillFill: NSColor
+  let pillHover: NSColor
+  let pillPressed: NSColor
   let pillBorder: NSColor
   let sweep: NSColor
   let blobAlpha: CGFloat
@@ -58,6 +60,8 @@ struct Palette {
       rim = [NSColor.white.withAlphaComponent(0.42), NSColor.white.withAlphaComponent(0.16),
              NSColor.white.withAlphaComponent(0.1)]
       pillFill = NSColor.white.withAlphaComponent(0.14)
+      pillHover = NSColor.white.withAlphaComponent(0.26)
+      pillPressed = NSColor.white.withAlphaComponent(0.36)
       pillBorder = NSColor.white.withAlphaComponent(0.2)
       sweep = NSColor.white.withAlphaComponent(0.28)
       blobAlpha = 0.38
@@ -73,6 +77,8 @@ struct Palette {
       rim = [NSColor.white.withAlphaComponent(1), ink.withAlphaComponent(0.1),
              ink.withAlphaComponent(0.16)]
       pillFill = NSColor.white.withAlphaComponent(0.6)
+      pillHover = NSColor.white.withAlphaComponent(0.85)
+      pillPressed = NSColor.white.withAlphaComponent(1)
       pillBorder = ink.withAlphaComponent(0.12)
       sweep = NSColor.white.withAlphaComponent(0.55)
       blobAlpha = 0.22
@@ -409,8 +415,10 @@ final class CardPanel: NSPanel {
     body.isSelectable = false
     body.isHidden = notice.body.isEmpty
 
-    // No action buttons: clicking the card is the default action, X closes.
-    buttonActions = []
+    // The banner's own buttons, minus its close action: the X in the corner already is that.
+    // Pressing one hands the press back to the real banner, which is where the system draws
+    // whatever the button opens (a reply field, a menu).
+    buttonActions = Array(notice.actions.filter { !$0.isClose && !$0.isExpand && !$0.isOpenApp }.prefix(3))
     let text = NSStackView(views: [header, title, subtitle, body])
     text.orientation = .vertical
     text.alignment = .leading
@@ -448,6 +456,19 @@ final class CardPanel: NSPanel {
         column.addArrangedSubview(rest)
       }
     }
+    if !buttonActions.isEmpty {
+      // A spacer as wide as the icon and its gap, so the buttons start on the text's left edge.
+      let indent = NSView()
+      indent.translatesAutoresizingMaskIntoConstraints = false
+      indent.widthAnchor.constraint(equalToConstant: Style.iconSize + 16).isActive = true
+      indent.heightAnchor.constraint(equalToConstant: 1).isActive = true
+      let pills = NSStackView(views: [indent] + buttonActions.enumerated().map { pill($1.label, tag: $0) })
+      pills.orientation = .horizontal
+      pills.alignment = .centerY
+      pills.spacing = 8
+      pills.setCustomSpacing(0, after: indent)
+      column.addArrangedSubview(pills)
+    }
     column.translatesAutoresizingMaskIntoConstraints = false
     contentHost.addSubview(column, positioned: .below, relativeTo: nil)
 
@@ -475,7 +496,7 @@ final class CardPanel: NSPanel {
       let ring = CountdownRing(tint: palette.tint, track: palette.text.withAlphaComponent(0.1), glow: palette.isDark)
       // Catches presses anywhere on the card except the corner, so a drag works over text and icon alike;
       // it handles nothing itself and lets the events climb to the panel.
-      let dragCatcher = NSView()
+      let dragCatcher = DragCatcher()
       dragCatcher.translatesAutoresizingMaskIntoConstraints = false
       contentHost.addSubview(dragCatcher)
       contentHost.addSubview(ring)
@@ -551,21 +572,32 @@ final class CardPanel: NSPanel {
     return row
   }
 
+  /// A rounded action button. The padding is measured, not spelled with spaces: the text is centred
+  /// by the layout and the pill is exactly as wide as the text plus its inset, at any card size.
   private func pill(_ label: String, tag: Int) -> NSButton {
-    let b = NSButton(title: label, target: self, action: #selector(actionClicked(_:)))
+    let title = NSAttributedString(string: label, attributes: [
+      .foregroundColor: palette.text,
+      .font: NSFont.systemFont(ofSize: 13 * Style.scale, weight: .semibold),
+    ])
+    let height = 28 * Style.scale
+    let b = PillButton(title: "", target: self, action: #selector(actionClicked(_:)))
     b.tag = tag
     b.isBordered = false
+    b.attributedTitle = title
+    b.fill = palette.pillFill
+    b.hoverFill = palette.pillHover
+    b.pressedFill = palette.pillPressed
+    b.alignment = .center
+    b.imagePosition = .noImage
     b.wantsLayer = true
     b.layer?.backgroundColor = palette.pillFill.cgColor
     b.layer?.borderColor = palette.pillBorder.cgColor
     b.layer?.borderWidth = 1
-    b.layer?.cornerRadius = 14
-    let padded = NSMutableAttributedString(string: "  \(label)  ")
-    padded.addAttributes([.foregroundColor: palette.text, .font: NSFont.systemFont(ofSize: 13 * Style.scale, weight: .semibold)],
-                         range: NSRange(location: 0, length: padded.length))
-    b.attributedTitle = padded
+    b.layer?.cornerRadius = height / 2
+    b.layer?.cornerCurve = .continuous
     b.translatesAutoresizingMaskIntoConstraints = false
-    b.heightAnchor.constraint(equalToConstant: 28).isActive = true
+    b.heightAnchor.constraint(equalToConstant: height).isActive = true
+    b.widthAnchor.constraint(equalToConstant: ceil(title.size().width) + height).isActive = true
     return b
   }
 
@@ -582,6 +614,7 @@ final class CardPanel: NSPanel {
 
   @objc private func actionClicked(_ sender: NSButton) {
     guard buttonActions.indices.contains(sender.tag) else { return }
+    // Whatever the button opens, the real banner takes over from here.
     onAction?(group.latest, buttonActions[sender.tag])
     dismiss()
   }
@@ -609,6 +642,8 @@ final class CardPanel: NSPanel {
 
   /// The card without its transparent margin, in screen coordinates.
   private var cardRect: NSRect { frame.insetBy(dx: Style.margin, dy: Style.margin) }
+  /// The same rect, for putting the real banner exactly where this card is.
+  var cardFrame: NSRect { cardRect }
 
   override func mouseDown(with event: NSEvent) {
     dragStart = NSEvent.mouseLocation
@@ -802,6 +837,57 @@ extension CardPanel: NSGestureRecognizerDelegate {
 
 /// Time left before the card goes, as an arc around the close button. It only reads: it drains
 /// clockwise from full, holds while the pointer is on the card, and refills when a new notice lands.
+/// An action pill that answers the pointer: brighter under it, brighter still while held.
+private final class PillButton: NSButton {
+  var fill: NSColor = .clear { didSet { paint(fill) } }
+  var hoverFill: NSColor = .clear
+  var pressedFill: NSColor = .clear
+  private var hovering = false
+  private var tracking: NSTrackingArea?
+
+  private func paint(_ color: NSColor) {
+    CATransaction.begin()
+    CATransaction.setAnimationDuration(0.12)
+    layer?.backgroundColor = color.cgColor
+    CATransaction.commit()
+  }
+
+  override func updateTrackingAreas() {
+    super.updateTrackingAreas()
+    if let tracking { removeTrackingArea(tracking) }
+    let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways], owner: self)
+    addTrackingArea(area)
+    tracking = area
+  }
+
+  override func mouseEntered(with event: NSEvent) {
+    hovering = true
+    paint(hoverFill)
+  }
+
+  override func mouseExited(with event: NSEvent) {
+    hovering = false
+    paint(fill)
+  }
+
+  override func mouseDown(with event: NSEvent) {
+    paint(pressedFill)
+    super.mouseDown(with: event)
+    paint(hovering ? hoverFill : fill)
+  }
+}
+
+/// The full-card drag surface. It sits above the content so a drag starts anywhere, which would
+/// also swallow clicks meant for the action buttons underneath: those get their own hit back.
+private final class DragCatcher: NSView {
+  override func hitTest(_ point: NSPoint) -> NSView? {
+    for sibling in superview?.subviews ?? [] where sibling !== self {
+      if let hit = sibling.hitTest(point), hit is NSButton { return hit }
+    }
+    return super.hitTest(point)
+  }
+}
+
 final class CountdownRing: NSView {
   static let size: CGFloat = 30
   private let arc = CAShapeLayer()
@@ -942,6 +1028,11 @@ final class CardManager {
 
   func layout() {
     for (c, f) in zip(cards, targetFrames()) { c.move(to: f) }
+  }
+
+  /// Where the card carrying this notice is drawn, without its shadow margin.
+  func cardFrame(forKey key: String) -> NSRect? {
+    cards.first { $0.group.notices.contains { $0.key == key } }?.cardFrame
   }
 
   /// While one card is dragged the rest of the stack keeps formation around it.

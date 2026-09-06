@@ -267,6 +267,7 @@ struct SettingsActions {
   let sendFiveTests: () -> Void
   let sendPinnedTest: () -> Void
   let sendActionTest: () -> Void
+  let sendPhotoTest: () -> Void
   let dismissAll: () -> Void
   let openLog: () -> Void
   let openAccessibility: () -> Void
@@ -578,7 +579,8 @@ final class SettingsWindow: NSWindowController {
     durationLabel.setContentHuggingPriority(.required, for: .horizontal)
     let tests = NSStackView(views: [button(T("보내기"), #selector(sendTest)), button(T("5회"), #selector(sendFiveTests)),
                                     button(T("고정"), #selector(sendPinnedTest)),
-                                    button(T("액션"), #selector(sendActionTest))])
+                                    button(T("액션"), #selector(sendActionTest)),
+                                    button(T("사진"), #selector(sendPhotoTest))])
     tests.distribution = .fillEqually
     tests.spacing = 6
     let tools = NSStackView(views: [button(T("로그 열기"), #selector(openLog)), button(T("Pounce 종료"), #selector(quitApp))])
@@ -1121,6 +1123,7 @@ final class SettingsWindow: NSWindowController {
   @objc private func sendFiveTests() { actions.sendFiveTests() }
   @objc private func sendPinnedTest() { actions.sendPinnedTest() }
   @objc private func sendActionTest() { actions.sendActionTest() }
+  @objc private func sendPhotoTest() { actions.sendPhotoTest() }
   @objc private func dismissAll() { actions.dismissAll() }
   @objc private func openLog() { actions.openLog() }
   @objc private func openAccessibility() { actions.openAccessibility() }

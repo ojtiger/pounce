@@ -129,6 +129,21 @@ extension AXUIElement {
     return out
   }
 
+  /// The first image anywhere under this element, with the attribute names it carries: what the
+  /// system hands over for an attachment, if anything, decides whether a card can draw it.
+  func firstImage(depth: Int = 0) -> (AXUIElement, [String])? {
+    guard depth < 8 else { return nil }
+    if role == kAXImageRole as String {
+      var names: CFArray?
+      AXUIElementCopyAttributeNames(self, &names)
+      return (self, (names as? [String]) ?? [])
+    }
+    for child in children() {
+      if let found = child.firstImage(depth: depth + 1) { return found }
+    }
+    return nil
+  }
+
   /// One-line summary for logs.
   var summary: String {
     var parts = [role ?? "?"]

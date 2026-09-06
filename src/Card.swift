@@ -240,6 +240,7 @@ final class CardPanel: NSPanel {
   let group: NoticeGroup
   var onActivate: ((Notice) -> Void)?
   var onAction: ((Notice, AXAction) -> Void)?
+  var onShowImage: ((Notice) -> Void)?
   var onClose: ((NoticeGroup) -> Void)?
   var onDismiss: (() -> Void)?
   var onDrag: ((CardPanel) -> Void)?
@@ -461,9 +462,12 @@ final class CardPanel: NSPanel {
     header.alignment = .centerY
 
     let titleFont = NSFont.systemFont(ofSize: 20 * Style.scale, weight: .bold)
-    let title = NSTextField(wrappingLabelWithString:
-      Self.clamped(notice.title, to: 2, attributes: [.font: titleFont], font: titleFont,
-                   spacing: 0, width: textWidth))
+    let titleText = NSMutableAttributedString(
+      string: Self.clamped(notice.title, to: 2, attributes: [.font: titleFont], font: titleFont,
+                           spacing: 0, width: textWidth),
+      attributes: [.font: titleFont, .foregroundColor: palette.text])
+    let title = NSTextField(wrappingLabelWithString: "")
+    title.attributedStringValue = titleText
     title.font = titleFont
     title.textColor = palette.text
     title.shadow = textShadow
@@ -550,13 +554,22 @@ final class CardPanel: NSPanel {
       }
     }
     folded = bodyFolded
-    if !buttonActions.isEmpty {
+    // A picture came with this notification and the card cannot draw it. The button hands the
+    // notification back to the system's banner, in the card's place, where the picture is drawn.
+    var extras: [NSButton] = []
+    if notice.hasImage {
+      let photo = pill(T("사진"), tag: -1)
+      photo.target = self
+      photo.action = #selector(showImage)
+      extras.append(photo)
+    }
+    if !buttonActions.isEmpty || !extras.isEmpty {
       // A spacer as wide as the icon and its gap, so the buttons start on the text's left edge.
       let indent = NSView()
       indent.translatesAutoresizingMaskIntoConstraints = false
       indent.widthAnchor.constraint(equalToConstant: Style.iconSize + 16).isActive = true
       indent.heightAnchor.constraint(equalToConstant: 1).isActive = true
-      let pills = NSStackView(views: [indent] + buttonActions.enumerated().map { pill($1.label, tag: $0) })
+      let pills = NSStackView(views: [indent] + buttonActions.enumerated().map { pill($1.label, tag: $0) } + extras)
       pills.orientation = .horizontal
       pills.alignment = .centerY
       pills.spacing = 8
@@ -760,6 +773,11 @@ final class CardPanel: NSPanel {
     ring?.freeze()
     _ = rebuildContent()
     onResize?()
+  }
+
+  @objc private func showImage() {
+    onShowImage?(group.latest)
+    dismiss()
   }
 
   @objc private func actionClicked(_ sender: NSButton) {
@@ -1126,6 +1144,8 @@ final class CountdownRing: NSView {
 struct CardHandlers {
   let activate: (Notice) -> Void
   let action: (Notice, AXAction) -> Void
+  /// The card was asked to hand this notification back to the system so its picture can be seen.
+  let showImage: (Notice) -> Void
   let close: (NoticeGroup) -> Void
 }
 
@@ -1164,6 +1184,7 @@ final class CardManager {
     let card = CardPanel(group: NoticeGroup(notice))
     card.onActivate = handlers.activate
     card.onAction = handlers.action
+    card.onShowImage = handlers.showImage
     card.onClose = handlers.close
     card.onDismiss = { [weak self, weak card] in
       guard let self, let card else { return }

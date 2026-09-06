@@ -50,6 +50,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.watcher.reveal(element, in: card)
       }
     },
+    showImage: { [weak self] notice in
+      // The card cannot draw the picture — accessibility gives its size and nothing else — so the
+      // system's own banner takes the card's place, where it draws the picture itself.
+      guard let self, let element = notice.element else { return }
+      let card = self.cards.cardFrame(forKey: notice.key).map(Self.axRect(of:))
+      logI("show the original for its picture: \(notice.app)")
+      self.watcher.reveal(element, in: card)
+    },
     close: { group in
       // Closing our card closes every system notification in the group, so alerts do not linger.
       for n in group.notices {
@@ -64,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     sendFiveTests: { [weak self] in self?.sendFiveTests() },
     sendPinnedTest: { [weak self] in self?.sendPinnedTest() },
     sendActionTest: { [weak self] in self?.sendActionTest() },
+    sendPhotoTest: { [weak self] in self?.sendPhotoTest() },
     dismissAll: { [weak self] in self?.dismissAll() },
     openLog: { [weak self] in self?.openLog() },
     openAccessibility: { [weak self] in self?.openAccessibility() },
@@ -291,7 +300,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// The real way: the app posts a notification under its own name, so the banner is Pounce's and
   /// our watcher intercepts it into a card with the app's icon. If notifications are off, we build the
   /// card directly so the test still works.
-  private func sendNotification(_ title: String, _ body: String, pinned: Bool = false, category: String? = nil) {
+  private func sendNotification(_ title: String, _ body: String, pinned: Bool = false,
+                                category: String? = nil, attachment: URL? = nil) {
     let center = UNUserNotificationCenter.current()
     center.delegate = self
     center.getNotificationSettings { settings in
@@ -301,6 +311,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         content.body = body
         content.sound = nil   // the card plays the chosen sound when it appears; no double
         if let category { content.categoryIdentifier = category }
+        if let attachment, let file = try? UNNotificationAttachment(identifier: "photo", url: attachment) {
+          content.attachments = [file]
+        }
         let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         center.add(req) { error in if let error { logE("post notification: \(error)") } }
       }
@@ -354,6 +367,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       UNNotificationCategory(identifier: Self.actionCategory, actions: [reply],
                              intentIdentifiers: [], options: [])
     ])
+  }
+
+  /// A notification carrying a picture. macOS shows it in the banner; the card has only what
+  /// accessibility hands over, so this is how to see what that leaves out.
+  @objc private func sendPhotoTest() {
+    guard let url = Self.testImageURL() else { return }
+    sendNotification(T("사진 테스트"), T("첨부된 사진이 있는 알림입니다."), attachment: url)
+  }
+
+  /// A picture drawn on the spot — no file has to ship with the app.
+  private static func testImageURL() -> URL? {
+    let size = NSSize(width: 600, height: 400)
+    let image = NSImage(size: size)
+    image.lockFocus()
+    NSGradient(colors: [NSColor.systemIndigo, NSColor.systemTeal])?.draw(in: NSRect(origin: .zero, size: size), angle: -35)
+    if let icon = NSApp.applicationIconImage {
+      icon.draw(in: NSRect(x: size.width / 2 - 90, y: size.height / 2 - 90, width: 180, height: 180))
+    }
+    image.unlockFocus()
+    guard let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff),
+          let png = bitmap.representation(using: .png, properties: [:]) else { return nil }
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("pounce-test.png")
+    do { try png.write(to: url) } catch { logE("test image: \(error.localizedDescription)"); return nil }
+    return url
   }
 
   @objc private func sendActionTest() {

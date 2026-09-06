@@ -16,6 +16,9 @@ struct Notice {
   /// Buttons the system banner offers (보기, 답장, 닫기 …). Ones known not to work are dropped
   /// before the card is built.
   var actions: [AXAction]
+  /// The banner carried a picture. Accessibility gives its size and nothing else — no pixels, no
+  /// file — so the card can only say that one is there.
+  var hasImage = false
   /// The display the banner appeared on (a CGDirectDisplayID); 0 when unknown. The card centres here,
   /// so it lands where the notification was, whatever the display arrangement or resolution.
   var screenNumber: UInt32 = 0
@@ -428,6 +431,8 @@ final class Watcher {
   private static let iPhoneHandoffMarkers = ["iPhone에서 가져옴", "from your iPhone", "from iPhone", "iPhone에서"]
 
   private func extract(_ banner: AXUIElement) -> Notice? {
+    let carriesImage = banner.firstImage() != nil
+    if carriesImage { logD("banner carries an image") }
     if dumpedBanners < 3 {
       dumpedBanners += 1
       var lines: [String] = []
@@ -468,7 +473,7 @@ final class Watcher {
                   isAlert: banner.subrole == "AXNotificationCenterAlert",
                   element: banner, uuid: uuid.count == 36 ? uuid : "",
                   icon: fromIPhone ? AppIcons.iPhoneImage : AppIcons.shared.icon(named: app),
-                  actions: banner.customActions(), fromIPhone: fromIPhone)
+                  actions: banner.customActions(), hasImage: carriesImage, fromIPhone: fromIPhone)
   }
 
   /// The permission request describes itself as "‘<app>’ 알림 경고" and offers 허용 / 허용 안 함.

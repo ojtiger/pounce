@@ -1,23 +1,23 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>맥 알림창 위치 변경 — Pounce</title>
-<meta name="description" content="macOS 알림창이 뜨는 위치를 화면 가운데로 옮기는 맥 앱. 우측 상단 알림 배너를 원하는 자리로 바꿉니다. 무료, 오픈소스, macOS 14 이상.">
-<link rel="canonical" href="https://ojtiger.github.io/pounce/">
+<title>Move macOS notifications where you want — Pounce</title>
+<meta name="description" content="A Mac app that moves macOS notification banners from the top-right corner to the center of your screen, or any of nine spots. Free, open source, macOS 14 and later.">
+<link rel="canonical" href="https://ojtiger.github.io/pounce/en/">
 <link rel="alternate" hreflang="ko" href="https://ojtiger.github.io/pounce/">
 <link rel="alternate" hreflang="en" href="https://ojtiger.github.io/pounce/en/">
 <link rel="alternate" hreflang="ja" href="https://ojtiger.github.io/pounce/ja/">
 <link rel="alternate" hreflang="zh-Hans" href="https://ojtiger.github.io/pounce/zh/">
 <link rel="alternate" hreflang="x-default" href="https://ojtiger.github.io/pounce/">
 <meta property="og:type" content="website">
-<meta property="og:title" content="맥 알림창 위치 변경 — Pounce">
-<meta property="og:description" content="macOS 알림 배너를 화면 가운데로 옮기는 맥 앱. 무료, 오픈소스.">
-<meta property="og:url" content="https://ojtiger.github.io/pounce/">
+<meta property="og:title" content="Move macOS notifications where you want — Pounce">
+<meta property="og:description" content="A Mac app that moves macOS notification banners to the center of your screen. Free and open source.">
+<meta property="og:url" content="https://ojtiger.github.io/pounce/en/">
 <meta property="og:image" content="https://ojtiger.github.io/pounce/og.png">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="icon" href="favicon.png">
+<link rel="icon" href="../favicon.png">
 <style>
   :root {
     color-scheme: light dark;
@@ -79,45 +79,45 @@
 <div class="wrap">
 
 <section class="group">
-  <p class="label">정보</p>
-  <div class="mark"><img src="icon.png" alt="Pounce"><span>Pounce</span></div>
-  <h1>맥 알림창 위치 변경</h1>
-  <p class="lede">맥 알림을 놓치지 않게, 원하는 자리로 옮겨 보여줍니다.</p>
+  <p class="label">About</p>
+  <div class="mark"><img src="../icon.png" alt="Pounce"><span>Pounce</span></div>
+  <h1>Move macOS notifications</h1>
+  <p class="lede">Notifications show up where you are actually looking, so you stop missing them.</p>
 </section>
 
 <section class="group">
-  <h2 class="label">설치</h2>
+  <h2 class="label">Install</h2>
   <div class="cmd">
     <span class="beer" aria-hidden="true">🍺</span>
     <code id="install">brew install --cask ojtiger/tap/pounce</code>
-    <button type="button" id="copy" aria-label="설치 명령 복사">복사</button>
+    <button type="button" id="copy" aria-label="Copy the install command">Copy</button>
   </div>
-  <p class="dl"><a href="https://github.com/ojtiger/pounce/releases/latest">직접 내려받기</a></p>
+  <p class="dl"><a href="https://github.com/ojtiger/pounce/releases/latest">Download directly</a></p>
 </section>
 
 <section class="group">
-  <h2 class="label">스크린샷</h2>
-  <img class="shot" src="screenshot.png" width="1144" height="1568" alt="Pounce 설정 창. 미리보기 안에서 알림 카드가 화면 가운데에 표시되고, 아홉 자리 중 위치를 고르는 격자가 보입니다.">
+  <h2 class="label">Screenshot</h2>
+  <img class="shot" src="../screenshot.png" width="1144" height="1568" alt="The Pounce settings window. The preview shows a notification card in the middle of the screen, with a grid for picking one of nine positions.">
 </section>
 
 <section class="group">
-  <h2 class="label">질문</h2>
+  <h2 class="label">FAQ</h2>
 
-  <h3>맥 설정에서 알림창 위치 못 바꾸나요?</h3>
-  <p>못 바꿉니다. 애플이 오른쪽 위로 박아뒀고 설정에 그런 항목이 없습니다. 그래서 만들었습니다.</p>
+  <h3>Can I change the notification position in macOS settings?</h3>
+  <p>You cannot. Apple pins banners to the top right and there is no setting for it. That is why this app exists.</p>
 
-  <h3>가운데에 뜨면 거슬리지 않나요?</h3>
-  <p>시간 지나면 알아서 사라집니다. 마우스를 올려두면 안 사라지고 기다립니다. 그래도 거슬리면 아래 가운데로 내리세요. 자리는 아홉 개 다 됩니다.</p>
+  <h3>Is a card in the middle of the screen distracting?</h3>
+  <p>It leaves on its own after a few seconds, and it waits while your pointer is on it. If it still gets in the way, move it to the bottom center. There are nine spots.</p>
 
-  <h3>알림 내용이 밖으로 나가나요?</h3>
-  <p>안 나갑니다. 전부 이 맥 안에서 끝납니다. 밖으로 나가는 건 새 버전 나왔나 보는 것 하나뿐이고, 그것도 설정에서 끄면 됩니다.</p>
+  <h3>Does anything leave my Mac?</h3>
+  <p>No. Everything happens on this Mac. The only outgoing request is the check for a new version, and you can turn that off.</p>
 
-  <h3>어떤 맥에서 되나요?</h3>
-  <p>macOS 14 소노마부터. M 시리즈든 인텔이든 됩니다. macOS 26 에서는 시스템 유리를, 그 아래에서는 서리 유리를 씁니다.</p>
+  <h3>Which Macs does it run on?</h3>
+  <p>macOS 14 Sonoma and later, Apple silicon and Intel alike. macOS 26 uses the system glass material, earlier versions frosted glass.</p>
 
   <nav class="langs">
-    <span class="here">한국어</span>
-    <a href="https://ojtiger.github.io/pounce/en/">English</a>
+    <a href="https://ojtiger.github.io/pounce/">한국어</a>
+    <span class="here">English</span>
     <a href="https://ojtiger.github.io/pounce/ja/">日本語</a>
     <a href="https://ojtiger.github.io/pounce/zh/">简体中文</a>
   </nav>
@@ -126,7 +126,7 @@
 </div>
 
 <script>
-var COPY = "복사", COPIED = "복사됨";
+var COPY = "Copy", COPIED = "Copied";
 document.getElementById('copy').addEventListener('click', function () {
   var text = document.getElementById('install').textContent, button = this;
   function done() {
@@ -151,11 +151,11 @@ document.getElementById('copy').addEventListener('click', function () {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "Pounce",
-  "alternateName": "맥 알림창 위치 변경",
-  "description": "macOS 알림 배너를 화면 가운데 등 원하는 위치로 옮겨 보여주는 맥 앱.",
+  "alternateName": "Pounce — move macOS notifications",
+  "description": "A Mac app that moves macOS notification banners to the center of the screen, or anywhere else you pick.",
   "applicationCategory": "UtilitiesApplication",
   "operatingSystem": "macOS 14.0 or later",
-  "url": "https://ojtiger.github.io/pounce/",
+  "url": "https://ojtiger.github.io/pounce/en/",
   "downloadUrl": "https://github.com/ojtiger/pounce/releases/latest",
   "softwareVersion": "0.3.0",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
@@ -166,14 +166,14 @@ document.getElementById('copy').addEventListener('click', function () {
   "@context": "https://schema.org",
   "@type": "FAQPage",
   "mainEntity": [
-    { "@type": "Question", "name": "맥 설정에서 알림창 위치 못 바꾸나요?",
-      "acceptedAnswer": { "@type": "Answer", "text": "못 바꿉니다. 애플이 오른쪽 위로 박아뒀고 설정에 그런 항목이 없습니다. 그래서 만들었습니다." } },
-    { "@type": "Question", "name": "가운데에 뜨면 거슬리지 않나요?",
-      "acceptedAnswer": { "@type": "Answer", "text": "시간 지나면 알아서 사라집니다. 마우스를 올려두면 안 사라지고 기다립니다. 그래도 거슬리면 아래 가운데로 내리세요. 자리는 아홉 개 다 됩니다." } },
-    { "@type": "Question", "name": "알림 내용이 밖으로 나가나요?",
-      "acceptedAnswer": { "@type": "Answer", "text": "안 나갑니다. 전부 이 맥 안에서 끝납니다. 밖으로 나가는 건 새 버전 나왔나 보는 것 하나뿐이고, 그것도 설정에서 끄면 됩니다." } },
-    { "@type": "Question", "name": "어떤 맥에서 되나요?",
-      "acceptedAnswer": { "@type": "Answer", "text": "macOS 14 소노마부터. M 시리즈든 인텔이든 됩니다. macOS 26 에서는 시스템 유리를, 그 아래에서는 서리 유리를 씁니다." } }
+    { "@type": "Question", "name": "Can I change the notification position in macOS settings?",
+      "acceptedAnswer": { "@type": "Answer", "text": "You cannot. Apple pins banners to the top right and there is no setting for it. That is why this app exists." } },
+    { "@type": "Question", "name": "Is a card in the middle of the screen distracting?",
+      "acceptedAnswer": { "@type": "Answer", "text": "It leaves on its own after a few seconds, and it waits while your pointer is on it. If it still gets in the way, move it to the bottom center. There are nine spots." } },
+    { "@type": "Question", "name": "Does anything leave my Mac?",
+      "acceptedAnswer": { "@type": "Answer", "text": "No. Everything happens on this Mac. The only outgoing request is the check for a new version, and you can turn that off." } },
+    { "@type": "Question", "name": "Which Macs does it run on?",
+      "acceptedAnswer": { "@type": "Answer", "text": "macOS 14 Sonoma and later, Apple silicon and Intel alike. macOS 26 uses the system glass material, earlier versions frosted glass." } }
   ]
 }
 </script>

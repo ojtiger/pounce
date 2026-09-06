@@ -1,23 +1,23 @@
 <!doctype html>
-<html lang="ko">
+<html lang="ja">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>맥 알림창 위치 변경 — Pounce</title>
-<meta name="description" content="macOS 알림창이 뜨는 위치를 화면 가운데로 옮기는 맥 앱. 우측 상단 알림 배너를 원하는 자리로 바꿉니다. 무료, 오픈소스, macOS 14 이상.">
-<link rel="canonical" href="https://ojtiger.github.io/pounce/">
+<title>Mac の通知の位置を変更 — Pounce</title>
+<meta name="description" content="Mac の通知バナーを右上から画面中央へ、または好きな位置へ移して表示する Mac アプリ。無料、オープンソース、macOS 14 以降。">
+<link rel="canonical" href="https://ojtiger.github.io/pounce/ja/">
 <link rel="alternate" hreflang="ko" href="https://ojtiger.github.io/pounce/">
 <link rel="alternate" hreflang="en" href="https://ojtiger.github.io/pounce/en/">
 <link rel="alternate" hreflang="ja" href="https://ojtiger.github.io/pounce/ja/">
 <link rel="alternate" hreflang="zh-Hans" href="https://ojtiger.github.io/pounce/zh/">
 <link rel="alternate" hreflang="x-default" href="https://ojtiger.github.io/pounce/">
 <meta property="og:type" content="website">
-<meta property="og:title" content="맥 알림창 위치 변경 — Pounce">
-<meta property="og:description" content="macOS 알림 배너를 화면 가운데로 옮기는 맥 앱. 무료, 오픈소스.">
-<meta property="og:url" content="https://ojtiger.github.io/pounce/">
+<meta property="og:title" content="Mac の通知の位置を変更 — Pounce">
+<meta property="og:description" content="Mac の通知バナーを画面中央へ移して表示する Mac アプリ。無料、オープンソース。">
+<meta property="og:url" content="https://ojtiger.github.io/pounce/ja/">
 <meta property="og:image" content="https://ojtiger.github.io/pounce/og.png">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="icon" href="favicon.png">
+<link rel="icon" href="../favicon.png">
 <style>
   :root {
     color-scheme: light dark;
@@ -79,46 +79,46 @@
 <div class="wrap">
 
 <section class="group">
-  <p class="label">정보</p>
-  <div class="mark"><img src="icon.png" alt="Pounce"><span>Pounce</span></div>
-  <h1>맥 알림창 위치 변경</h1>
-  <p class="lede">맥 알림을 놓치지 않게, 원하는 자리로 옮겨 보여줍니다.</p>
+  <p class="label">概要</p>
+  <div class="mark"><img src="../icon.png" alt="Pounce"><span>Pounce</span></div>
+  <h1>Mac の通知の位置を変更</h1>
+  <p class="lede">通知を見逃さないように、目を向けている場所に表示します。</p>
 </section>
 
 <section class="group">
-  <h2 class="label">설치</h2>
+  <h2 class="label">インストール</h2>
   <div class="cmd">
     <span class="beer" aria-hidden="true">🍺</span>
     <code id="install">brew install --cask ojtiger/tap/pounce</code>
-    <button type="button" id="copy" aria-label="설치 명령 복사">복사</button>
+    <button type="button" id="copy" aria-label="インストールコマンドをコピー">コピー</button>
   </div>
-  <p class="dl"><a href="https://github.com/ojtiger/pounce/releases/latest">직접 내려받기</a></p>
+  <p class="dl"><a href="https://github.com/ojtiger/pounce/releases/latest">直接ダウンロード</a></p>
 </section>
 
 <section class="group">
-  <h2 class="label">스크린샷</h2>
-  <img class="shot" src="screenshot.png" width="1144" height="1568" alt="Pounce 설정 창. 미리보기 안에서 알림 카드가 화면 가운데에 표시되고, 아홉 자리 중 위치를 고르는 격자가 보입니다.">
+  <h2 class="label">スクリーンショット</h2>
+  <img class="shot" src="../screenshot.png" width="1144" height="1568" alt="Pounce の設定ウインドウ。プレビューに画面中央の通知カードと、九か所から位置を選ぶグリッドが表示されている。">
 </section>
 
 <section class="group">
-  <h2 class="label">질문</h2>
+  <h2 class="label">よくある質問</h2>
 
-  <h3>맥 설정에서 알림창 위치 못 바꾸나요?</h3>
-  <p>못 바꿉니다. 애플이 오른쪽 위로 박아뒀고 설정에 그런 항목이 없습니다. 그래서 만들었습니다.</p>
+  <h3>Mac の設定で通知の位置を変えられませんか？</h3>
+  <p>変えられません。Apple がバナーを右上に固定していて、その設定項目がありません。そのために作りました。</p>
 
-  <h3>가운데에 뜨면 거슬리지 않나요?</h3>
-  <p>시간 지나면 알아서 사라집니다. 마우스를 올려두면 안 사라지고 기다립니다. 그래도 거슬리면 아래 가운데로 내리세요. 자리는 아홉 개 다 됩니다.</p>
+  <h3>中央に出ると邪魔になりませんか？</h3>
+  <p>時間が経てば自動で消えます。ポインタを乗せている間は消えずに待ちます。それでも気になるなら下中央へ。位置は九か所から選べます。</p>
 
-  <h3>알림 내용이 밖으로 나가나요?</h3>
-  <p>안 나갑니다. 전부 이 맥 안에서 끝납니다. 밖으로 나가는 건 새 버전 나왔나 보는 것 하나뿐이고, 그것도 설정에서 끄면 됩니다.</p>
+  <h3>通知の内容が外部に送信されますか？</h3>
+  <p>されません。すべてこの Mac の中で完結します。外に出るのは新しいバージョンの確認だけで、それも設定でオフにできます。</p>
 
-  <h3>어떤 맥에서 되나요?</h3>
-  <p>macOS 14 소노마부터. M 시리즈든 인텔이든 됩니다. macOS 26 에서는 시스템 유리를, 그 아래에서는 서리 유리를 씁니다.</p>
+  <h3>どの Mac で動きますか？</h3>
+  <p>macOS 14 Sonoma 以降。Apple シリコンでも Intel でも動きます。macOS 26 ではシステムのガラス、それ以前ではすりガラスを使います。</p>
 
   <nav class="langs">
-    <span class="here">한국어</span>
+    <a href="https://ojtiger.github.io/pounce/">한국어</a>
     <a href="https://ojtiger.github.io/pounce/en/">English</a>
-    <a href="https://ojtiger.github.io/pounce/ja/">日本語</a>
+    <span class="here">日本語</span>
     <a href="https://ojtiger.github.io/pounce/zh/">简体中文</a>
   </nav>
 </section>
@@ -126,7 +126,7 @@
 </div>
 
 <script>
-var COPY = "복사", COPIED = "복사됨";
+var COPY = "コピー", COPIED = "コピーしました";
 document.getElementById('copy').addEventListener('click', function () {
   var text = document.getElementById('install').textContent, button = this;
   function done() {
@@ -151,11 +151,11 @@ document.getElementById('copy').addEventListener('click', function () {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "Pounce",
-  "alternateName": "맥 알림창 위치 변경",
-  "description": "macOS 알림 배너를 화면 가운데 등 원하는 위치로 옮겨 보여주는 맥 앱.",
+  "alternateName": "Pounce — Mac の通知の位置を変更",
+  "description": "Mac の通知バナーを画面中央など好きな位置へ移して表示する Mac アプリ。",
   "applicationCategory": "UtilitiesApplication",
   "operatingSystem": "macOS 14.0 or later",
-  "url": "https://ojtiger.github.io/pounce/",
+  "url": "https://ojtiger.github.io/pounce/ja/",
   "downloadUrl": "https://github.com/ojtiger/pounce/releases/latest",
   "softwareVersion": "0.3.0",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
@@ -166,14 +166,14 @@ document.getElementById('copy').addEventListener('click', function () {
   "@context": "https://schema.org",
   "@type": "FAQPage",
   "mainEntity": [
-    { "@type": "Question", "name": "맥 설정에서 알림창 위치 못 바꾸나요?",
-      "acceptedAnswer": { "@type": "Answer", "text": "못 바꿉니다. 애플이 오른쪽 위로 박아뒀고 설정에 그런 항목이 없습니다. 그래서 만들었습니다." } },
-    { "@type": "Question", "name": "가운데에 뜨면 거슬리지 않나요?",
-      "acceptedAnswer": { "@type": "Answer", "text": "시간 지나면 알아서 사라집니다. 마우스를 올려두면 안 사라지고 기다립니다. 그래도 거슬리면 아래 가운데로 내리세요. 자리는 아홉 개 다 됩니다." } },
-    { "@type": "Question", "name": "알림 내용이 밖으로 나가나요?",
-      "acceptedAnswer": { "@type": "Answer", "text": "안 나갑니다. 전부 이 맥 안에서 끝납니다. 밖으로 나가는 건 새 버전 나왔나 보는 것 하나뿐이고, 그것도 설정에서 끄면 됩니다." } },
-    { "@type": "Question", "name": "어떤 맥에서 되나요?",
-      "acceptedAnswer": { "@type": "Answer", "text": "macOS 14 소노마부터. M 시리즈든 인텔이든 됩니다. macOS 26 에서는 시스템 유리를, 그 아래에서는 서리 유리를 씁니다." } }
+    { "@type": "Question", "name": "Mac の設定で通知の位置を変えられませんか？",
+      "acceptedAnswer": { "@type": "Answer", "text": "変えられません。Apple がバナーを右上に固定していて、その設定項目がありません。そのために作りました。" } },
+    { "@type": "Question", "name": "中央に出ると邪魔になりませんか？",
+      "acceptedAnswer": { "@type": "Answer", "text": "時間が経てば自動で消えます。ポインタを乗せている間は消えずに待ちます。それでも気になるなら下中央へ。位置は九か所から選べます。" } },
+    { "@type": "Question", "name": "通知の内容が外部に送信されますか？",
+      "acceptedAnswer": { "@type": "Answer", "text": "されません。すべてこの Mac の中で完結します。外に出るのは新しいバージョンの確認だけで、それも設定でオフにできます。" } },
+    { "@type": "Question", "name": "どの Mac で動きますか？",
+      "acceptedAnswer": { "@type": "Answer", "text": "macOS 14 Sonoma 以降。Apple シリコンでも Intel でも動きます。macOS 26 ではシステムのガラス、それ以前ではすりガラスを使います。" } }
   ]
 }
 </script>

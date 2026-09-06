@@ -98,6 +98,7 @@ private let table = """
 없음|None|なし|无|無|Ninguno|Aucun|Ohne|Nessuno|Nenhum|Нет|Geen|Brak|Yok|Không|Tidak ada
 언어|Language|言語|语言|語言|Idioma|Langue|Sprache|Lingua|Idioma|Язык|Taal|Język|Dil|Ngôn ngữ|Bahasa
 알람 테스트|Test notification|通知テスト|通知测试|通知測試|Notificación de prueba|Notification de test|Testmitteilung|Notifica di prova|Notificação de teste|Тестовое уведомление|Testmelding|Powiadomienie testowe|Test bildirimi|Thông báo thử|Notifikasi uji
+5회|×5|×5|×5|×5|×5|×5|×5|×5|×5|×5|×5|×5|×5|×5|×5
 보내기|Send|送信|发送|發送|Enviar|Envoyer|Senden|Invia|Enviar|Отправить|Stuur|Wyślij|Gönder|Gửi|Kirim
 고정|Pinned|固定|固定|固定|Fijada|Épinglée|Fixiert|Fissata|Fixada|Закреплённое|Vastgezet|Przypięte|Sabit|Ghim|Disematkan
 모든 알람 닫기|Close all|すべて閉じる|全部关闭|全部關閉|Cerrar todo|Tout fermer|Alle schließen|Chiudi tutto|Fechar tudo|Закрыть все|Alles sluiten|Zamknij wszystkie|Tümünü kapat|Đóng tất cả|Tutup semua

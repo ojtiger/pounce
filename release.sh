@@ -63,20 +63,12 @@ if git rev-parse -q --verify "refs/tags/v$next" >/dev/null || git ls-remote --ta
 fi
 
 # ── 3. 서명 채비
-target=notarize
-security find-identity -v -p codesigning | grep -q "Developer ID Application" || {
-  warn "Developer ID Application 인증서가 없습니다 → Gatekeeper 가 받는 쪽에서 막습니다."
-  target=package
-}
-xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 || {
-  [[ "$target" == "package" ]] || warn "공증 프로필 '$NOTARY_PROFILE' 이 없습니다."
-  target=package
-}
-if [[ "$target" == "package" ]]; then
-  team=$(security find-identity -v -p codesigning | sed -n 's/.*(\([A-Z0-9]*\))"$/\1/p' | head -1)
-  warn "공증 없이 make package 로 만듭니다(서명 팀 ${team:-알 수 없음})."
-  warn "0.3.0 은 다른 팀(VXR4D4G8N4)으로 서명돼 있어, 올라오는 사용자는 손쉬운 사용 권한을 다시 켜야 합니다."
-  ask "그래도 진행할까요?" || die "중단."
+# 공증은 유료 개발자 프로그램이 있어야 한다. 없으면 지금까지처럼 package 로 낸다 — 정상 경로다.
+target=package
+if security find-identity -v -p codesigning | grep -q "Developer ID Application" &&
+   xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
+  target=notarize
+  ok "Developer ID + 공증 프로필 확인"
 fi
 
 # ── 4. 버전 박고 빌드

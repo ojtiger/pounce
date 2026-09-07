@@ -14,7 +14,8 @@ VERSION = "0.9.2"
 
 LANGS = {
   "ko": {
-    "dir": "", "hreflang": "ko", "name": "한국어", "shot": "screenshot.png",
+    "dir": "", "hreflang": "ko", "name": "한국어", "shot": "screenshot.png", "hero": "hero.jpg",
+    "heroalt": "화면 가운데에 뜬 Pounce 알림 카드",
     "title": "맥 알림창 위치 변경 — Pounce",
     "desc": "macOS 알림창이 뜨는 위치를 화면 가운데로 옮기는 맥 앱. 우측 상단 알림 배너를 원하는 자리로 바꿉니다. 무료, 오픈소스, macOS 14 이상.",
     "ogdesc": "macOS 알림 배너를 화면 가운데로 옮기는 맥 앱. 무료, 오픈소스.",
@@ -41,6 +42,7 @@ LANGS = {
   },
   "en": {
     "dir": "en/", "hreflang": "en", "name": "English", "shot": "screenshot-en.png", "og": "og-en.png",
+    "hero": "hero-en.jpg", "heroalt": "A Pounce notification card in the middle of the screen",
     "title": "Move macOS notifications where you want — Pounce",
     "desc": "A Mac app that moves macOS notification banners from the top-right corner to the center of your screen, or any of nine spots. Free, open source, macOS 14 and later.",
     "ogdesc": "A Mac app that moves macOS notification banners to the center of your screen. Free and open source.",
@@ -66,7 +68,8 @@ LANGS = {
     ],
   },
   "ja": {
-    "dir": "ja/", "hreflang": "ja", "name": "日本語", "shot": "screenshot-ja.png",
+    "dir": "ja/", "hreflang": "ja", "name": "日本語", "shot": "screenshot-ja.png", "og": "og-ja.png",
+    "hero": "hero-ja.jpg", "heroalt": "画面中央に表示された Pounce の通知カード",
     "title": "Mac の通知の位置を変更 — Pounce",
     "desc": "Mac の通知バナーを右上から画面中央へ、または好きな位置へ移して表示する Mac アプリ。無料、オープンソース、macOS 14 以降。",
     "ogdesc": "Mac の通知バナーを画面中央へ移して表示する Mac アプリ。無料、オープンソース。",
@@ -92,7 +95,8 @@ LANGS = {
     ],
   },
   "zh": {
-    "dir": "zh/", "hreflang": "zh-Hans", "name": "简体中文", "shot": "screenshot-zh.png",
+    "dir": "zh/", "hreflang": "zh-Hans", "name": "简体中文", "shot": "screenshot-zh.png", "og": "og-zh.png",
+    "hero": "hero-zh.jpg", "heroalt": "显示在屏幕中央的 Pounce 通知卡片",
     "title": "更改 Mac 通知位置 — Pounce",
     "desc": "把 Mac 通知横幅从右上角移到屏幕中央，或九个位置中的任意一个的 Mac 应用。免费、开源，支持 macOS 14 及以上。",
     "ogdesc": "把 Mac 通知横幅移到屏幕中央的 Mac 应用。免费、开源。",
@@ -167,6 +171,7 @@ STYLE = """  :root {
   .cmd button:hover { background: var(--bg); }
   .cmd button.done { color: var(--accent); border-color: var(--accent); }
   .dl { margin: 0; font-size: 14px; }
+  .hero { display: block; width: 100%; height: auto; border-radius: 12px; margin: 26px 0 0; }
   .shot { display: block; width: 100%; max-width: 520px; height: auto; margin: 0 auto; }
   h2 { font-size: 20px; }
   h3 { font-size: 16px; margin: 24px 0 6px; }
@@ -216,6 +221,7 @@ def page(code, L):
         "l0": L["labels"][0], "l1": L["labels"][1], "l2": L["labels"][2], "l3": L["labels"][3],
         "brew": BREW, "copy": L["copy"], "copied": L["copied"], "copyAria": L["copyAria"],
         "download": L["download"], "latest": LATEST, "alt": L["alt"], "shot": L["shot"],
+        "hero": L["hero"], "heroalt": L["heroalt"],
         "schemaName": L["schemaName"], "schemaDesc": L["schemaDesc"], "version": VERSION,
         "faq": faq_html, "faqLd": faq_ld, "style": STYLE, "script": SCRIPT,
         "copyJs": json_str(L["copy"]), "copiedJs": json_str(L["copied"]),
@@ -259,6 +265,7 @@ TEMPLATE = """<!doctype html>
   <div class="mark"><img src="%(up)sicon.png" alt="Pounce"><span>Pounce</span></div>
   <h1>%(h1)s</h1>
   <p class="lede">%(lede)s</p>
+  <img class="hero" src="%(up)s%(hero)s" width="1600" height="900" alt="%(heroalt)s">
 </section>
 
 <section class="group">
@@ -273,7 +280,7 @@ TEMPLATE = """<!doctype html>
 
 <section class="group">
   <h2 class="label">%(l2)s</h2>
-  <img class="shot" src="%(up)s%(shot)s" width="1144" height="1568" alt="%(alt)s">
+  <img class="shot" src="%(up)s%(shot)s" width="1144" height="2118" alt="%(alt)s">
 </section>
 
 <section class="group">

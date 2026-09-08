@@ -211,20 +211,28 @@ final class NoticeGroup {
   /// Relayed from the mirrored iPhone; kept so a phone card never merges with the Mac app's card.
   let fromIPhone: Bool
   private(set) var notices: [Notice]
+  /// The last notice the group held. A card whose notices have all aged out stays on screen for the
+  /// length of its fade, and everything that asks what it is showing — which display it sits on,
+  /// which key it answers to — has to get an answer back rather than take the app down.
+  private var departed: Notice
 
   init(_ notice: Notice) {
     app = notice.app
     icon = notice.icon
     fromIPhone = notice.fromIPhone
     notices = [notice]
+    departed = notice
   }
 
-  var latest: Notice { notices[0] }
+  var latest: Notice { notices.first ?? departed }
   var isAlert: Bool { notices.contains { $0.isAlert } }
   var isPinned: Bool { notices.contains { $0.pinned } }
   var isEmpty: Bool { notices.isEmpty }
 
-  func add(_ notice: Notice) { notices.insert(notice, at: 0) }
+  func add(_ notice: Notice) {
+    notices.insert(notice, at: 0)
+    departed = notice
+  }
 
   /// Pushes every arrival forward, for time that should not have counted — the pointer resting on
   /// the card while someone reads it.
@@ -1400,9 +1408,11 @@ final class CardManager {
   /// The display to place the stack on: the user's explicit choice, else the one the newest card's
   /// notification appeared on, else the primary. Following the notification keeps "가운데" truly centred
   /// on the display the banner used, regardless of arrangement or resolution.
-  private var currentScreen: NSScreen {
+  /// Nil while the Mac has no display to draw on — every screen asleep, or the last one unplugged.
+  private var currentScreen: NSScreen? {
     if settings.displayID != 0 { return settings.screen }
-    if let id = cards.first?.group.latest.screenNumber, id != 0,
+    // A card on its way out no longer names the display the stack belongs on.
+    if let id = cards.first(where: { !$0.isClosing })?.group.latest.screenNumber, id != 0,
        let match = NSScreen.screens.first(where: { Settings.id(of: $0) == id }) { return match }
     return Settings.primaryScreen
   }
@@ -1443,7 +1453,9 @@ final class CardManager {
     }
     let frames = targetFrames()
     for (c, f) in zip(cards, frames) where c !== card { c.move(to: f) }
-    card.present(at: frames[0])
+    // With no display there are no frames; the card opens where it stands and the next layout,
+    // once a screen is back, walks it to its place.
+    card.present(at: frames.first ?? .zero)
   }
 
   func dismissAll() {
@@ -1454,7 +1466,7 @@ final class CardManager {
   /// banner of its newest notice; older notices were already replaced by newer ones from the
   /// same app and stay on the card as context, so their going away changes nothing.
   func remove(key: String) {
-    guard let card = cards.first(where: { $0.group.latest.key == key }) else { return }
+    guard let card = cards.first(where: { !$0.isClosing && $0.group.latest.key == key }) else { return }
     card.originalGone()
   }
 
@@ -1470,7 +1482,7 @@ final class CardManager {
   /// While one card is dragged the rest of the stack keeps formation around it.
   private func follow(_ dragged: CardPanel) {
     let frames = targetFrames()
-    guard let i = cards.firstIndex(where: { $0 === dragged }) else { return }
+    guard let i = cards.firstIndex(where: { $0 === dragged }), i < frames.count else { return }
     let dx = dragged.frame.minX - frames[i].minX, dy = dragged.frame.minY - frames[i].minY
     for (c, f) in zip(cards, frames) where c !== dragged {
       c.setFrameOrigin(NSPoint(x: f.minX + dx, y: f.minY + dy))
@@ -1480,7 +1492,7 @@ final class CardManager {
   /// Where the stack was dropped becomes its place, kept for later cards until an anchor is picked.
   private func dragEnded(_ dragged: CardPanel) {
     let frames = targetFrames()
-    guard let i = cards.firstIndex(where: { $0 === dragged }) else { return }
+    guard let i = cards.firstIndex(where: { $0 === dragged }), i < frames.count else { return }
     var offset = settings.offset
     offset.x += dragged.frame.minX - frames[i].minX
     offset.y += dragged.frame.minY - frames[i].minY
@@ -1489,7 +1501,7 @@ final class CardManager {
 
   /// Keeps every card of the stack on the chosen display.
   private func clamped(_ offset: NSPoint) -> NSPoint {
-    let s = currentScreen.visibleFrame
+    guard let s = currentScreen?.visibleFrame else { return offset }
     let frames = targetFrames(offset: offset)
     guard var stack = frames.first?.insetBy(dx: Style.margin, dy: Style.margin) else { return offset }
     for f in frames.dropFirst() { stack = stack.union(f.insetBy(dx: Style.margin, dy: Style.margin)) }
@@ -1505,7 +1517,7 @@ final class CardManager {
   /// the anchor on the chosen display, shifted by the drag offset. The newest card sits nearest the anchor
   /// edge, so it is on top in the upper and middle rows, at the bottom in the bottom row.
   private func targetFrames(offset: NSPoint? = nil) -> [NSRect] {
-    let s = currentScreen.visibleFrame
+    guard let s = currentScreen?.visibleFrame else { return [] }
     let shift = offset ?? settings.offset
     let anchor = settings.anchor
     let heights = cards.map { $0.cardHeight }

@@ -98,6 +98,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   func applicationDidFinishLaunching(_: Notification) {
     logI("launch \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") ?? "")")
+    // Before anything that could go wrong: reports how the last run ended and catches this one.
+    Crash.install()
     // The app index is built now, in the background, so no notification ever waits for the disk.
     AppIcons.shared.warm()
     setupStatusItem()
@@ -131,6 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
       source.setEventHandler { [weak self] in
         self?.watcher.stop()
+        Crash.noteCleanExit()
         logI("signal \(sig): restored and exiting")
         exit(0)
       }
@@ -141,6 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   func applicationWillTerminate(_: Notification) {
     watcher.stop()
+    Crash.noteCleanExit()
     logI("quit")
   }
 
@@ -188,7 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// AppKit screen coordinates (origin at the primary display's bottom-left, y up) to the AX and
   /// CoreGraphics space windows are positioned in (origin top-left, y down).
   private static func axRect(of rect: NSRect) -> CGRect {
-    CGRect(x: rect.minX, y: Settings.primaryScreen.frame.maxY - rect.maxY,
+    CGRect(x: rect.minX, y: (Settings.primaryScreen?.frame.maxY ?? 0) - rect.maxY,
            width: rect.width, height: rect.height)
   }
 

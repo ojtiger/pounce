@@ -25,15 +25,38 @@ final class Log {
 
   func write(_ level: String, _ message: String) {
     let line = "[\(level)] \(formatter.string(from: Date())) \(message)\n"
-    queue.async {
-      if !FileManager.default.fileExists(atPath: self.url.path) {
+    queue.async { self.append(line) }
+  }
+
+  /// The same, on the caller's thread. For last words before the process goes: the queue would
+  /// never get its turn.
+  func writeNow(_ level: String, _ message: String) {
+    let line = "[\(level)] \(formatter.string(from: Date())) \(message)\n"
+    queue.sync { self.append(line) }
+  }
+
+  /// Empties the log in place. Truncating rather than deleting keeps the file — and the descriptor
+  /// the crash handler holds open on it — pointing at the same place.
+  func clear() {
+    queue.sync {
+      guard let handle = try? FileHandle(forWritingTo: self.url) else {
         FileManager.default.createFile(atPath: self.url.path, contents: nil)
+        return
       }
-      guard let handle = try? FileHandle(forWritingTo: self.url) else { return }
       defer { try? handle.close() }
-      _ = try? handle.seekToEnd()
-      handle.write(Data(line.utf8))
+      try? handle.truncate(atOffset: 0)
     }
+  }
+
+  /// Always on `queue`.
+  private func append(_ line: String) {
+    if !FileManager.default.fileExists(atPath: url.path) {
+      FileManager.default.createFile(atPath: url.path, contents: nil)
+    }
+    guard let handle = try? FileHandle(forWritingTo: url) else { return }
+    defer { try? handle.close() }
+    _ = try? handle.seekToEnd()
+    handle.write(Data(line.utf8))
   }
 }
 

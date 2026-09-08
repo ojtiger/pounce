@@ -244,7 +244,8 @@ final class Settings {
 
   /// The chosen screen while it is connected, otherwise the display notifications actually appear on:
   /// the one with the menu bar. `NSScreen.screens.first` is not reliably that when several are attached.
-  var screen: NSScreen {
+  /// Nil when the Mac has no display at all — every screen asleep, or unplugged mid-session.
+  var screen: NSScreen? {
     let id = displayID
     if id != 0, let chosen = NSScreen.screens.first(where: { Settings.id(of: $0) == id }) { return chosen }
     return Settings.primaryScreen
@@ -252,8 +253,8 @@ final class Settings {
 
   /// The display with the menu bar. In AppKit's global space its frame origin is (0, 0); every other
   /// display is placed relative to it. This is where macOS draws notification banners.
-  static var primaryScreen: NSScreen {
-    NSScreen.screens.first { $0.frame.origin == .zero } ?? NSScreen.main ?? NSScreen.screens.first!
+  static var primaryScreen: NSScreen? {
+    NSScreen.screens.first { $0.frame.origin == .zero } ?? NSScreen.main ?? NSScreen.screens.first
   }
 
   static func id(of screen: NSScreen) -> CGDirectDisplayID {
@@ -296,7 +297,7 @@ final class PreviewCard: NSView {
     appearance = NSAppearance(named: palette.isDark ? .darkAqua : .aqua)
     scale = Settings.shared.size.scale
     anchor = Settings.shared.anchor
-    let url = NSWorkspace.shared.desktopImageURL(for: Settings.shared.screen)
+    let url = Settings.shared.screen.flatMap { NSWorkspace.shared.desktopImageURL(for: $0) }
     if url != wallpaperURL { wallpaperURL = url; wallpaper = url.flatMap { NSImage(contentsOf: $0) } }
     needsDisplay = true
   }
@@ -585,8 +586,12 @@ final class SettingsWindow: NSWindowController {
                                     button(T("전화"), #selector(sendCallTest))])
     tests.distribution = .fillEqually
     tests.spacing = 6
-    let tools = NSStackView(views: [button(T("로그 열기"), #selector(openLog)), button(T("Pounce 종료"), #selector(quitApp))])
-    tools.distribution = .fillEqually
+    let tools = NSStackView(views: [button(T("로그 열기"), #selector(openLog)),
+                                    button(T("로그 지우기"), #selector(clearLog)),
+                                    button(T("Pounce 종료"), #selector(quitApp))])
+    // Three buttons of very different lengths — "Pounce 종료" is "Завершить Pounce" in Russian —
+    // so they share the row by what each one needs rather than in equal thirds.
+    tools.distribution = .fillProportionally
     tools.spacing = 6
 
     // Accessibility is what lets Pounce hide the system banner. Replacing the app resigns it and macOS
@@ -972,7 +977,7 @@ final class SettingsWindow: NSWindowController {
 
   @objc private func refresh() {
     screenPopup.removeAllItems()
-    let current = Settings.id(of: settings.screen)
+    let current = settings.screen.map(Settings.id(of:)) ?? 0
     for screen in NSScreen.screens {
       screenPopup.addItem(withTitle: screen.localizedName)
       screenPopup.lastItem?.tag = Int(Settings.id(of: screen))
@@ -1129,6 +1134,13 @@ final class SettingsWindow: NSWindowController {
   @objc private func sendCallTest() { actions.sendCallTest() }
   @objc private func dismissAll() { actions.dismissAll() }
   @objc private func openLog() { actions.openLog() }
+
+  /// Empties the log so the next run's lines stand alone — what gets sent after reproducing
+  /// something is then only that.
+  @objc private func clearLog() {
+    Log.shared.clear()
+    logI("log cleared")
+  }
   @objc private func openAccessibility() { actions.openAccessibility() }
 
   private func refreshTrust() {

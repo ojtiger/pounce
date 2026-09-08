@@ -11,6 +11,7 @@ src/Settings.swift     설정 창(위치·테마·설정·정보 탭)과 UserDef
 src/Localization.swift 화면 문자열 표. 한국어 원문이 키, 17개 언어
 src/Updater.swift      새 버전 확인·설치·재실행
 src/AX.swift           접근성 헬퍼와 로그
+src/Crash.swift        죽은 이유를 로그에 남긴다
 docs/                  소개 페이지(GitHub Pages). build.py 로 4개 국어 생성
 release.sh             배포 한 판
 signing-identity.sh    서명 인증서를 팀으로 고른다
@@ -63,6 +64,11 @@ make build      # 서명까지만
 ```
 
 - 로그는 `~/Library/Logs/pounce.log`. 설정 > 설정 탭에서 디버그 로그를 켜면 배너 트리까지 남는다.
+  같은 탭의 **로그 지우기**로 비우고 재현하면 보내야 할 것이 그 재현분만 남는다.
+- 죽으면 다음 실행이 그 이유를 로그 맨 앞에 적는다. macOS 가 `~/Library/Logs/DiagnosticReports`
+  에 쓴 최신 리포트를 요약해 붙이고(예외 종류 + 크래시 스레드 14줄), 인사 없이 끝난 실행은
+  그 사실을 남긴다. 시그널 핸들러가 백트레이스를 직접 적으므로 시스템 리포트가 없어도 자리는 남는다.
+  **받을 것은 여전히 로그 파일 하나뿐이다.**
 - 앱을 갈아끼우면 손쉬운 사용 권한이 떨어질 수 있다. 설정 > 설정 탭 > 접근성 열기로 다시 켠다.
 - 소개 페이지 문구는 `docs/build.py` 에서 고치고 `python3 docs/build.py` 로 4개 국어를 다시 찍는다.
   HTML 을 직접 고치면 다음 생성 때 날아간다.

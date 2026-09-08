@@ -299,6 +299,15 @@ final class Watcher {
         park(w)
         let screenNumber = originForScreen.flatMap(displayID(forAXPoint:)) ?? 0
         for b in banners {
+          // A banner already on a card is not read again. Reading walks its whole tree and looks up
+          // an icon, and the hold timer comes back here twenty times a second. Worse, a banner being
+          // taken apart answers with its text gone and its app name still carrying the title
+          // ("카카오톡 오중석"), and that name then goes looking for an app that does not exist.
+          if let live = liveKey(of: b) {
+            present.insert(live)
+            seenKeys[live] = Date()
+            continue
+          }
           guard var notice = extract(b) else {
             if !pendingRescan {
               // Text not populated yet; look again shortly.
@@ -331,6 +340,14 @@ final class Watcher {
     liveKeys = present
     let cutoff = Date().addingTimeInterval(-120)
     seenKeys = seenKeys.filter { $0.value > cutoff }
+  }
+
+  /// The key of a banner that is already on a card, taken from the banner's own identifier so the
+  /// rest of it can be left alone.
+  private func liveKey(of banner: AXUIElement) -> String? {
+    let id = (banner.identifier ?? "").uppercased()
+    guard id.count == 36, liveKeys.contains(id) else { return nil }
+    return id
   }
 
   private func classify(_ root: AXUIElement) -> WindowKind {
@@ -465,12 +482,15 @@ final class Watcher {
     if !title.isEmpty, app.hasSuffix(title) { app = cleanAX(String(app.dropLast(title.count))) }
     // Some senders carry no app name in the description (phone notifications without a title, for one):
     // the first part is just the title. Then that is the name to show, and the title line stays empty.
+    // A banner being taken apart still answers with its description after its text has gone. What
+    // comes back then is a wordless card whose app name has the title run into it, so it is not a
+    // notice at all — and the name it carries would send the icon lookup off to Spotlight.
+    guard !title.isEmpty || !subtitle.isEmpty || !body.isEmpty else { return nil }
     if app.isEmpty, !title.isEmpty {
       logI("no app name in \"\(desc.prefix(80))\"; showing the title as the sender")
       app = title
       title = ""
     }
-    guard !title.isEmpty || !body.isEmpty || !app.isEmpty else { return nil }
     let uuid = (banner.identifier ?? "").uppercased()
     return Notice(app: app, title: title, subtitle: subtitle, body: body,
                   isAlert: banner.subrole == "AXNotificationCenterAlert",
@@ -515,21 +535,37 @@ final class Watcher {
 /// Finds apps by the name the banner shows (localized display name, e.g. "스크립트 편집기").
 final class AppIcons {
   static let shared = AppIcons()
+  /// Read on the main thread, written on `queue`.
+  private let lock = NSLock()
   private var pathByName = [String: String]()
   private var missed = Set<String>()
+  private var looking = Set<String>()
   private var scanned = false
+  /// Everything that touches the disk — the folder index, Spotlight — runs here and never on the
+  /// main thread. A blocked main thread stops the hold timer, and a parked banner walks back on
+  /// screen while it is stopped.
+  private let queue = DispatchQueue(label: "pounce.appicons", qos: .utility)
 
   /// The app's real icon, or a picture of where the notification came from: an iPhone for an app that
   /// only exists on the mirrored phone, this Mac for a Mac-side sender without an icon.
+  /// Answers at once, always: a name that is not in the index is chased on `queue` and this
+  /// notification shows the stand-in. The next one from the same app has the real icon.
   func icon(named name: String) -> NSImage? {
-    guard !name.isEmpty else { return Self.hasIPhoneMirroring ? Self.iPhoneImage : Self.macImage }
+    guard !name.isEmpty else { return Self.standIn }
     if let running = NSWorkspace.shared.runningApplications.first(where: { $0.localizedName == name }) {
       return running.icon ?? Self.macImage
     }
-    if let path = path(named: name) { return NSWorkspace.shared.icon(forFile: path) }
-    logD("app icon: \"\(name)\" is not on this Mac, showing \(Self.hasIPhoneMirroring ? "iPhone" : "this Mac")")
-    return Self.hasIPhoneMirroring ? Self.iPhoneImage : Self.macImage
+    if let path = cachedPath(named: name) { return NSWorkspace.shared.icon(forFile: path) }
+    look(for: name)
+    return Self.standIn
   }
+
+  /// What stands in for an app with no icon here: an iPhone when the phone is mirrored to this Mac,
+  /// this Mac otherwise.
+  static var standIn: NSImage? { hasIPhoneMirroring ? iPhoneImage : macImage }
+
+  /// Builds the folder index in the background at launch, so the first notification finds it ready.
+  func warm() { queue.async { self.buildIndex() } }
 
   /// This Mac as the system draws it (About This Mac, Finder sidebar): the right model, automatically.
   static let macImage: NSImage? = NSImage(named: NSImage.computerName)
@@ -606,42 +642,90 @@ final class AppIcons {
   static let hasIPhoneMirroring =
     FileManager.default.fileExists(atPath: NSHomeDirectory() + "/Library/Containers/com.apple.ScreenContinuity")
 
-  func path(named name: String) -> String? {
-    if !scanned { scan() }
-    if let path = pathByName[name] { return path }
-    guard !missed.contains(name) else { return nil }
-    if let path = spotlight(named: name) {
-      pathByName[name] = path
-      return path
+  /// The app's bundle, once it is known. Hands the answer back on the main thread — straight from
+  /// the index, or after the lookup for a name that is not in it.
+  func findPath(named name: String, then handle: @escaping (String?) -> Void) {
+    if let path = cachedPath(named: name) { handle(path); return }
+    queue.async {
+      self.buildIndex()
+      let path = self.resolve(name)
+      DispatchQueue.main.async { handle(path) }
     }
-    missed.insert(name)
-    logD("app icon: no app named \"\(name)\"")
-    return nil
+  }
+
+  private func cachedPath(named name: String) -> String? {
+    lock.lock()
+    defer { lock.unlock() }
+    return pathByName[name]
+  }
+
+  /// Asks the disk once per name and remembers the answer, a miss included. Runs on `queue`.
+  @discardableResult private func resolve(_ name: String) -> String? {
+    lock.lock()
+    let known = pathByName[name]
+    let alreadyMissed = missed.contains(name)
+    lock.unlock()
+    defer {
+      lock.lock()
+      looking.remove(name)
+      lock.unlock()
+    }
+    if let known { return known }
+    guard !alreadyMissed else { return nil }
+    let found = spotlight(named: name)
+    lock.lock()
+    if let found { pathByName[name] = found } else { missed.insert(name) }
+    lock.unlock()
+    if found == nil { logD("app icon: no app named \"\(name)\"") }
+    return found
+  }
+
+  /// One lookup per name: notifications arriving while it runs do not pile more on.
+  private func look(for name: String) {
+    lock.lock()
+    let known = missed.contains(name) || looking.contains(name)
+    if !known { looking.insert(name) }
+    lock.unlock()
+    guard !known else { return }
+    queue.async {
+      self.buildIndex()
+      self.resolve(name)
+    }
   }
 
   /// Standard app folders plus one level of vendor subfolders (e.g. /Applications/Utilities, ~/Applications/JetBrains).
-  private func scan() {
+  /// Walks the disk, so it is only ever called on `queue`. Runs once.
+  private func buildIndex() {
+    lock.lock()
+    let done = scanned
     scanned = true
+    lock.unlock()
+    guard !done else { return }
     let fm = FileManager.default
     let roots = ["/Applications", NSHomeDirectory() + "/Applications",
                  "/System/Applications", "/System/Library/CoreServices"]
+    var found = [String: String]()
     for root in roots {
       for entry in (try? fm.contentsOfDirectory(atPath: root)) ?? [] {
         let path = "\(root)/\(entry)"
-        if entry.hasSuffix(".app") { register(path); continue }
+        if entry.hasSuffix(".app") { register(path, into: &found); continue }
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else { continue }
         for sub in (try? fm.contentsOfDirectory(atPath: path)) ?? [] where sub.hasSuffix(".app") {
-          register("\(path)/\(sub)")
+          register("\(path)/\(sub)", into: &found)
         }
       }
     }
-    logD("app icon index: \(pathByName.count) names")
+    lock.lock()
+    for (name, path) in found where pathByName[name] == nil { pathByName[name] = path }
+    let count = pathByName.count
+    lock.unlock()
+    logD("app icon index: \(count) names")
   }
 
   /// One bundle answers to several names: file name, Finder display name, CFBundleDisplayName / CFBundleName
   /// in the current language and in the base Info.plist.
-  private func register(_ path: String) {
+  private func register(_ path: String, into index: inout [String: String]) {
     let fm = FileManager.default
     var names = [String((path as NSString).lastPathComponent.dropLast(4))]
     var display = fm.displayName(atPath: path)
@@ -654,10 +738,10 @@ final class AppIcons {
         }
       }
     }
-    for n in names where !n.isEmpty && pathByName[n] == nil { pathByName[n] = path }
+    for n in names where !n.isEmpty && index[n] == nil { index[n] = path }
   }
 
-  /// Apps installed anywhere else: ask Spotlight once per name.
+  /// Apps installed anywhere else: ask Spotlight once per name. Blocks, so it stays on `queue`.
   private func spotlight(named name: String) -> String? {
     let q = name.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'")
     let task = Process()

@@ -28,8 +28,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       logD("press original banner ok=\(pressed)")
       if let app = NSWorkspace.shared.runningApplications.first(where: { $0.localizedName == notice.app }) {
         app.activate()
-      } else if !pressed, let path = AppIcons.shared.path(named: notice.app) {
-        NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: path), configuration: .init())
+      } else if !pressed {
+        // Finding an app that is not running can mean asking Spotlight, which takes as long as it
+        // takes: it happens off the main thread and opens the app when the answer comes back.
+        AppIcons.shared.findPath(named: notice.app) { path in
+          guard let path else { return }
+          NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: path), configuration: .init())
+        }
       }
     },
     action: { [weak self] notice, action in
@@ -93,6 +98,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   func applicationDidFinishLaunching(_: Notification) {
     logI("launch \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") ?? "")")
+    // The app index is built now, in the background, so no notification ever waits for the disk.
+    AppIcons.shared.warm()
     setupStatusItem()
     installMainMenu()
     Settings.shared.onMenuBarChange = { [weak self] in self?.applyMenuBarVisibility() }

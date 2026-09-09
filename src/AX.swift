@@ -66,12 +66,80 @@ func logD(_ m: String) { if Log.shared.debugEnabled { Log.shared.write("DEBUG", 
 
 // MARK: - AX helpers
 
-extension AXUIElement {
-  func attr<T>(_ name: String, as _: T.Type) -> T? {
-    var ref: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(self, name as CFString, &ref) == .success else { return nil }
-    return ref as? T
+/// What an accessibility read actually said. "The value is not there" and "the read did not
+/// happen" are different facts, and every decision about whether a banner is still on screen turns
+/// on telling them apart: a tree that cannot be read must never be mistaken for an empty one.
+enum AXRead<T> {
+  case ok(T)
+  /// The element answered and carries nothing under this attribute.
+  case absent
+  /// The element is gone. `kAXErrorInvalidUIElement` is the only answer that proves this.
+  case dead
+  /// The read did not happen — busy, timed out, refused. Nothing may be concluded from it.
+  case unknown(AXError)
+
+  var value: T? {
+    if case .ok(let v) = self { return v }
+    return nil
   }
+
+  var isDead: Bool {
+    if case .dead = self { return true }
+    return false
+  }
+}
+
+extension AXUIElement {
+  /// The whole answer, error and all. Everything else here is built on this.
+  func read<T>(_ name: String, as _: T.Type) -> AXRead<T> {
+    var ref: CFTypeRef?
+    let err = AXUIElementCopyAttributeValue(self, name as CFString, &ref)
+    switch err {
+    case .success:
+      guard let v = ref as? T else { return .absent }
+      return .ok(v)
+    case .noValue, .attributeUnsupported:
+      return .absent
+    case .invalidUIElement:
+      return .dead
+    default:
+      return .unknown(err)
+    }
+  }
+
+  /// Whether the element still exists. Only `invalidUIElement` proves it does not; every other
+  /// unhappy answer means we do not know, which is not the same thing and must not be treated as one.
+  var liveness: AXRead<Bool> {
+    switch read(kAXRoleAttribute, as: String.self) {
+    case .ok, .absent: return .ok(true)
+    case .dead: return .dead
+    case .unknown(let e): return .unknown(e)
+    }
+  }
+
+  /// Children, keeping the difference between "has none" and "could not ask".
+  func childList() -> AXRead<[AXUIElement]> {
+    switch read(kAXChildrenAttribute, as: [AXUIElement].self) {
+    case .ok(let c): return .ok(c)
+    case .absent: return .ok([])
+    case .dead: return .dead
+    case .unknown(let e): return .unknown(e)
+    }
+  }
+
+  /// The position, with the same distinction kept: a read that failed is not a window that moved.
+  func readPoint(_ name: String = kAXPositionAttribute) -> AXRead<CGPoint> {
+    switch read(name, as: AXValue.self) {
+    case .ok(let v):
+      var p = CGPoint.zero
+      return AXValueGetValue(v, .cgPoint, &p) ? .ok(p) : .unknown(.failure)
+    case .absent: return .absent
+    case .dead: return .dead
+    case .unknown(let e): return .unknown(e)
+    }
+  }
+
+  func attr<T>(_ name: String, as _: T.Type) -> T? { read(name, as: T.self).value }
 
   var role: String? { attr(kAXRoleAttribute, as: String.self) }
   var subrole: String? { attr(kAXSubroleAttribute, as: String.self) }

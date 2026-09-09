@@ -48,11 +48,23 @@ private enum K {
   /// The system keeps drawing the banner's fade-out for a few frames after that, so putting the
   /// window back right away shows the tail of the animation in the corner.
   static let emptyGrace: TimeInterval = 0.7
+  /// How long any single accessibility call may take before it is abandoned as unanswered. Well
+  /// under the system default so a wedged Notification Center cannot hold the main thread, and
+  /// well over what pressing a banner button needs.
+  static let readTimeout: Float = 0.5
+  /// How long a banner may go unreadable before it is written off. Long enough to sit out any
+  /// stall worth waiting for, short enough that a wedged Notification Center cannot strand a card.
+  static let unknownGrace: TimeInterval = 5
 }
 
 private enum WindowKind {
   case banners([AXUIElement])
   case empty
+  /// The window itself is gone.
+  case dead
+  /// The tree could not be read. Nothing may be concluded from it — least of all that the window
+  /// is empty, which is the one conclusion that would put a live banner back on screen.
+  case unreadable(String)
   case skip(String)
 }
 
@@ -92,8 +104,23 @@ final class Watcher {
   /// Where a revealed window is being held instead of off-screen: the spot its card was using.
   private var holdTargets = [AXUIElement: CGPoint]()
   private var loggedSkips = Set<AXUIElement>()
+  private var unreadableWindows = Set<AXUIElement>()
   private var seenKeys = [String: Date]()
   private var liveKeys = Set<String>()
+  /// The banner element behind each live key. A banner missing from the tree is asked directly
+  /// whether it is still there before it is called gone.
+  private var liveBanners = [String: AXUIElement]()
+  private var bannerKeys = [AXUIElement: String]()
+  /// The window each live banner was last seen in, so an empty-looking window is not put back
+  /// while a banner it was holding still answers for itself.
+  private var bannerWindow = [String: AXUIElement]()
+  private var observedBanners = Set<AXUIElement>()
+  /// Keys the tree has lost sight of but whose banners still answer; logged once, not every scan.
+  private var heldKeys = Set<String>()
+  /// When each of those was last seen in the tree. Still answering is proof of life and waits as
+  /// long as it likes; a banner we simply cannot read does not get to wait forever.
+  private var heldSince = [String: Date]()
+  private var lastReadFailureLog = Date.distantPast
   private var pendingRescan = false
   private var dumpedBanners = 0
   private var holdTimer: Timer?
@@ -119,6 +146,10 @@ final class Watcher {
     watchedPID = app.processIdentifier
     let element = AXUIElementCreateApplication(app.processIdentifier)
     appElement = element
+    // Cut a read that is going nowhere short instead of letting it hold the main thread: a blocked
+    // main thread stops the hold timer and a parked banner walks back on screen. A read that times
+    // out now says so, and a read that says nothing changes nothing.
+    AXUIElementSetMessagingTimeout(element, K.readTimeout)
     CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(obs), .defaultMode)
     register(kAXWindowCreatedNotification, on: element, label: "app")
     register("AXChildrenChanged", on: element, label: "app")
@@ -142,12 +173,19 @@ final class Watcher {
     observer = nil
     appElement = nil
     observedWindows.removeAll()
+    observedBanners.removeAll()
     loggedSkips.removeAll()
+    unreadableWindows.removeAll()
     emptySince.removeAll()
     holdTargets.removeAll()
     releasedWindows.removeAll()
     seenKeys.removeAll()
     liveKeys.removeAll()
+    liveBanners.removeAll()
+    bannerKeys.removeAll()
+    bannerWindow.removeAll()
+    heldKeys.removeAll()
+    heldSince.removeAll()
   }
 
   /// A previous instance killed without cleanup leaves the window parked off-screen; bring it back.
@@ -237,16 +275,43 @@ final class Watcher {
     logD("event \(notification) on \(element.role ?? "?")[\(element.subrole ?? "-")]")
     if notification == kAXWindowCreatedNotification as String { observe(window: element) }
     if notification == kAXUIElementDestroyedNotification as String {
+      // The system saying so is the one unarguable proof that a banner is finished.
+      if let key = bannerKeys[element] { fireGone(key, reason: "destroyed") }
       releasedWindows.remove(element)
       emptySince.removeValue(forKey: element)
       holdTargets.removeValue(forKey: element)
+      unreadableWindows.remove(element)
       if parkedOrigins.removeValue(forKey: element) != nil { observedWindows.remove(element) }
     }
     scan()
   }
 
+  /// An unanswered read here is not an empty Notification Center: it returns nothing and this scan
+  /// simply does nothing, leaving every window parked exactly where it was.
   private func windows() -> [AXUIElement] {
-    appElement?.attr(kAXWindowsAttribute, as: [AXUIElement].self) ?? []
+    guard let app = appElement else { return [] }
+    switch app.read(kAXWindowsAttribute, as: [AXUIElement].self) {
+    case .ok(let ws): return ws
+    case .absent: return []
+    case .dead: return []
+    case .unknown(let e):
+      logRead("window list: \(e.name)")
+      return []
+    }
+  }
+
+  /// Reads that did not happen are worth knowing about but come back twenty times a second;
+  /// one line a second is enough to see them in the log.
+  private func logRead(_ what: String) {
+    guard Date().timeIntervalSince(lastReadFailureLog) > 1 else { return }
+    lastReadFailureLog = Date()
+    logD("read failed: \(what)")
+  }
+
+  /// Ask the banner itself to tell us when it dies, rather than inferring it from the tree.
+  private func observe(banner: AXUIElement) {
+    guard observedBanners.insert(banner).inserted else { return }
+    register(kAXUIElementDestroyedNotification, on: banner, label: "banner")
   }
 
   private func observe(window: AXUIElement) {
@@ -274,12 +339,33 @@ final class Watcher {
       observe(window: w)
       switch classify(w) {
       case .skip(let why):
+        unreadableWindows.remove(w)
         if loggedSkips.insert(w).inserted { logD("skip window: \(why)") }
+      case .unreadable(let why):
+        // A tree we could not read tells us nothing. The window stays where it is — parked windows
+        // parked, cards standing — until a read comes back that we can believe.
+        emptySince.removeValue(forKey: w)
+        if unreadableWindows.insert(w).inserted { logD("window unreadable: \(why)") }
+      case .dead:
+        unreadableWindows.remove(w)
+        emptySince.removeValue(forKey: w)
+        holdTargets.removeValue(forKey: w)
+        releasedWindows.remove(w)
+        if parkedOrigins.removeValue(forKey: w) != nil { observedWindows.remove(w) }
       case .empty:
+        unreadableWindows.remove(w)
         releasedWindows.remove(w)
         // Accessibility drops the banner before its fade-out has finished drawing, so hold the
         // window off-screen a moment longer and let the animation play out where it cannot be seen.
         if parkedOrigins[w] == nil { break }
+        // An empty tree is not an empty screen. While a banner this window was holding still
+        // answers for itself, the window keeps standing where it cannot be seen: putting it back
+        // now would drop a live banner — a persistent alert above all, which never leaves on its
+        // own — into the corner of the screen for the user to find.
+        if liveKeys.contains(where: { bannerWindow[$0] == w }) {
+          emptySince.removeValue(forKey: w)
+          break
+        }
         let emptyAt = emptySince[w] ?? Date()
         emptySince[w] = emptyAt
         if Date().timeIntervalSince(emptyAt) >= K.emptyGrace {
@@ -287,6 +373,7 @@ final class Watcher {
           restore(w, reason: "no banner")
         }
       case .banners(let banners):
+        unreadableWindows.remove(w)
         emptySince.removeValue(forKey: w)
         if banners.contains(where: isPermissionPrompt) {
           // macOS asking "‘App’ 알림 허용?" lives here too. It must stay where its buttons can be pressed.
@@ -306,6 +393,7 @@ final class Watcher {
           if let live = liveKey(of: b) {
             present.insert(live)
             seenKeys[live] = Date()
+            track(live, banner: b, in: w)
             continue
           }
           guard var notice = extract(b) else {
@@ -322,6 +410,7 @@ final class Watcher {
           notice.screenNumber = screenNumber
           let key = notice.key
           present.insert(key)
+          track(key, banner: b, in: w)
           let now = Date()
           if liveKeys.contains(key) { seenKeys[key] = now; continue }
           if let t = seenKeys[key], now.timeIntervalSince(t) < 60 { continue }
@@ -332,14 +421,71 @@ final class Watcher {
         }
       }
     }
-    // Banners that were live a moment ago and are not any more.
+    // Banners that were live a moment ago and are not in the tree now. Missing from the tree is
+    // not proof of anything: Notification Center re-lays its stack out and a banner can drop out of
+    // the tree for a moment while it is still drawn. Only the banner itself settles it.
     for key in liveKeys.subtracting(present) {
-      logD("gone \(key.prefix(8))")
-      onGone?(key)
+      guard let banner = liveBanners[key] else {
+        fireGone(key, reason: "untracked")
+        continue
+      }
+      switch banner.liveness {
+      case .dead:
+        fireGone(key, reason: "gone from tree, element dead")
+      case .unknown(let e):
+        // Not knowing is a state, not an answer, and it may not become a permanent one.
+        let since = heldSince[key] ?? Date()
+        heldSince[key] = since
+        if heldKeys.insert(key).inserted { logD("hold \(key.prefix(8)): read failed (\(e.name))") }
+        if Date().timeIntervalSince(since) >= K.unknownGrace {
+          fireGone(key, reason: "unreadable for \(Int(K.unknownGrace))s (\(e.name))")
+        } else {
+          present.insert(key)
+        }
+      case .ok, .absent:
+        heldSince[key] = Date()
+        if heldKeys.insert(key).inserted { logD("hold \(key.prefix(8)): out of tree, still answering") }
+        present.insert(key)
+      }
     }
     liveKeys = present
     let cutoff = Date().addingTimeInterval(-120)
     seenKeys = seenKeys.filter { $0.value > cutoff }
+  }
+
+  /// Remember the banner behind a key: the handle it is asked through when the tree stops showing
+  /// it, the window it belongs to, and a subscription to its death.
+  private func track(_ key: String, banner: AXUIElement, in window: AXUIElement) {
+    bannerWindow[key] = window
+    if liveBanners[key] != banner {
+      if let old = liveBanners[key] { bannerKeys.removeValue(forKey: old) }
+      liveBanners[key] = banner
+      bannerKeys[banner] = key
+    }
+    observe(banner: banner)
+    heldKeys.remove(key)
+    heldSince.removeValue(forKey: key)
+  }
+
+  /// The one place a banner is declared finished, with the reason that settled it. Everything a
+  /// card outlives — the window coming back, the card going — hangs off this, so the log says why.
+  private func fireGone(_ key: String, reason: String) {
+    guard liveKeys.remove(key) != nil else { return }
+    logD("gone \(key.prefix(8)) reason=\(reason)")
+    forget(key)
+    onGone?(key)
+  }
+
+  private func forget(_ key: String) {
+    if let banner = liveBanners.removeValue(forKey: key) {
+      bannerKeys.removeValue(forKey: banner)
+      if observedBanners.remove(banner) != nil, let obs = observer {
+        AXObserverRemoveNotification(obs, banner, kAXUIElementDestroyedNotification as CFString)
+      }
+    }
+    bannerWindow.removeValue(forKey: key)
+    heldKeys.remove(key)
+    heldSince.removeValue(forKey: key)
   }
 
   /// The key of a banner that is already on a card, taken from the banner's own identifier so the
@@ -355,19 +501,44 @@ final class Watcher {
     var visited = Set<AXUIElement>()
     var banners: [AXUIElement] = []
     var hasWidget = false
+    // A read that did not happen leaves the walk half done. Whatever banners it did find still get
+    // the window parked — hiding one banner too many costs nothing — but a tree we never finished
+    // reading may never be called empty.
+    func giveUp(_ why: String) -> WindowKind {
+      banners.isEmpty ? .unreadable(why) : .banners(banners)
+    }
     while let el = pending.popLast() {
       guard visited.insert(el).inserted else { continue }
       if visited.count > K.maxNodes { return .skip("too many nodes") }
-      if let id = el.identifier {
+      switch el.read(kAXIdentifierAttribute, as: String.self) {
+      case .ok(let id):
         // The Notification Center panel (clock click) lists old notifications; leave it alone.
         if id == K.widgetEditorButton { return .skip("notification center panel") }
         if id.hasPrefix(K.widgetPrefix) { hasWidget = true }
+      case .absent: break
+      case .dead:
+        if el == root { return .dead }
+        continue
+      case .unknown(let e): return giveUp("id: \(e.name)")
       }
-      if let s = el.subrole, K.bannerSubroles.contains(s) {
+      switch el.read(kAXSubroleAttribute, as: String.self) {
+      case .ok(let sub) where K.bannerSubroles.contains(sub):
         banners.append(el)
         continue
+      case .ok, .absent: break
+      case .dead:
+        if el == root { return .dead }
+        continue
+      case .unknown(let e): return giveUp("subrole: \(e.name)")
       }
-      pending.append(contentsOf: el.children().reversed())
+      switch el.childList() {
+      case .ok(let kids): pending.append(contentsOf: kids.reversed())
+      case .absent: break
+      case .dead:
+        if el == root { return .dead }
+        continue
+      case .unknown(let e): return giveUp("children: \(e.name)")
+      }
     }
     // A window that holds banners is a banner window even if desktop widgets share it.
     if !banners.isEmpty { return .banners(banners) }
@@ -389,6 +560,14 @@ final class Watcher {
     guard !releasedWindows.contains(window) else { return }
     if parkedOrigins[window] == nil {
       guard let frame = window.frame() else { return }
+      // The baseline is where the window belongs, and a window already off-screen is not there.
+      // Taking a parked spot for home would make every later park push it further out and every
+      // restore put it back out of sight, stranding the banner for good.
+      if frame.minY <= -K.parkOffset / 2 {
+        logE("baseline refused at \(NSStringFromRect(frame)); bringing the window back first")
+        _ = window.setPosition(CGPoint(x: frame.minX, y: frame.minY + K.parkOffset))
+        return
+      }
       guard window.isSettable(kAXPositionAttribute) else {
         logE("window position not settable")
         return
@@ -424,13 +603,23 @@ final class Watcher {
     // reply field stays where the user is looking even if Notification Center re-lays it out.
     let target = holdTargets[window] ?? CGPoint(x: origin.x, y: origin.y - K.parkOffset)
     if !force {
-      guard let current = window.point() else {
+      switch window.readPoint() {
+      case .dead:
         parkedOrigins.removeValue(forKey: window)
+        holdTargets.removeValue(forKey: window)
         logD("parked window gone")
         return
+      case .unknown(let e):
+        // Not knowing where the window is says nothing about whether it is still ours. Dropping the
+        // baseline here would hand the next park a parked spot to call home.
+        logRead("hold position: \(e.name)")
+        return
+      case .absent:
+        return
+      case .ok(let current):
+        if abs(current.y - target.y) < 1 { return }
+        logD("snapped back to \(NSStringFromPoint(current)); re-parking")
       }
-      if abs(current.y - target.y) < 1 { return }
-      logD("snapped back to \(NSStringFromPoint(current)); re-parking")
     }
     let r = window.setPosition(target)
     logD("park result=\(r.name)")

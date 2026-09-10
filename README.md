@@ -1,29 +1,39 @@
-# Pounce — 맥 알림창 위치 변경
+# Pounce — move macOS notifications where you want
 
-![화면 가운데에 뜬 Pounce 알림 카드](docs/hero.jpg)
+[한국어](README.ko.md) · [Website](https://ojtiger.github.io/pounce/)
 
-macOS 가 우측 상단에 그리는 알림 배너를 그 순간 가로채 **화면 가운데**(또는 아홉 자리 중 고른 곳)에
-리퀴드 글래스 카드로 보여줍니다. macOS 는 알림 위치를 바꾸는 설정을 주지 않습니다.
+![A Pounce notification card in the middle of the screen](docs/hero-en.jpg)
 
-소개 페이지: <https://ojtiger.github.io/pounce/>
+macOS pins notification banners to the top right corner and offers no setting to change that.
+Pounce catches each banner the moment it appears, moves it off screen, and redraws it as a glass
+card in the **middle of your screen** — or in whichever of nine spots you pick.
 
-알림 자체는 바꾸지 않습니다. 집중 모드, 방해금지, 소리, 알림센터 기록, 클릭 동작 전부 macOS 규칙 그대로이고 위치와 표현만 다릅니다.
+It does not change the notifications themselves. Focus modes, Do Not Disturb, sounds, Notification
+Center history and click behaviour all follow the usual macOS rules. Only the position and the look
+are different.
 
-- 접근성 API 로 알림센터 배너 창을 감시하고, 화면에 들어오기 전에 치운 뒤 내용을 읽습니다.
-- 카드는 원본 배너와 같이 살고 같이 사라집니다. 같은 앱 알림은 카드 하나에 묶입니다.
-- 떠 있는 알림("알림" 스타일)은 10초 뒤 우측 상단 제자리로 돌려줍니다.
-- macOS 26 은 NSGlassEffectView, 그 이전은 서리 유리. 다크/라이트와 강조 색상은 시스템을 따릅니다.
-- 메뉴 막대 아이콘은 숨길 수 있습니다. 숨긴 뒤 Pounce 를 다시 실행하면 설정 창이 열립니다.
-- 비공개 접근성 구조에 기대므로 macOS 업데이트 때 깨질 수 있습니다. 깨지면 원래 배너가 그냥 우측 상단에 뜹니다.
+- Watches Notification Center's banner windows through the Accessibility API, moves each one away
+  before it reaches the screen, then reads its contents.
+- A card lives and dies with the banner behind it. Notifications from the same app stack into one card.
+- Alerts (the style that stays on screen) are handed back to their usual top-right spot after 10 seconds.
+- macOS 26 uses NSGlassEffectView, earlier versions frosted glass. Dark/light mode and the accent
+  colour follow the system.
+- The menu bar icon can be hidden. Launch Pounce again once it is hidden and the settings window opens.
+- It leans on private accessibility structures, so a macOS update can break it. If it breaks, banners
+  simply appear at the top right as they always did.
 
-## 설치
+## Install
 
 ```sh
 brew install --cask ojtiger/tap/pounce
 ```
 
-첫 실행 때 접근성 권한을 허용해야 합니다.
+Grant Accessibility permission on first launch.
 
-## 요구 사항
+You can also download the latest build from [Releases](https://github.com/ojtiger/pounce/releases/latest),
+but the app is signed without notarisation, so macOS blocks that copy on first launch and you have to
+approve it in System Settings > Privacy & Security. The Homebrew cask clears that for you.
 
-macOS 14 이상, 애플 실리콘·인텔 모두. 무료, 오픈소스.
+## Requirements
+
+macOS 14 Sonoma or later, Apple silicon and Intel alike. Free and open source.

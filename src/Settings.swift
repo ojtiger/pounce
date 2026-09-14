@@ -115,21 +115,18 @@ enum CardSize: String, CaseIterable {
 /// The card's look. Brightness is a separate question (that is 밝기), and every theme answers it —
 /// each one has a light and a dark face rather than forcing one.
 enum Surface: String, CaseIterable {
-  /// The system's own glass, refracting the desktop behind it.
-  case glass
+  /// 시스템이 주는 재질 그대로. macOS 26 부터는 NSGlassEffectView, 그 아래는 서리 유리.
+  case basic
   /// Glass with two soft clouds of the app's warm and cool tones drifting behind the text.
   case aurora
   /// A dark slab lit from its own edge: the accent colour glows around the card and along its rim.
   case neon
-  /// Colour taken out. Grey glass, silver rim, the app's hue ignored.
-  case mono
 
   var label: String {
     switch self {
-    case .glass: return T("유리")
+    case .basic: return T("기본")
     case .aurora: return T("오로라")
     case .neon: return T("네온")
-    case .mono: return T("모노")
     }
   }
 
@@ -181,7 +178,7 @@ final class Settings {
 
   /// Glass or a plain opaque card. Changing it drops the cards on screen; the next ones are built anew.
   var surface: Surface {
-    get { Surface(rawValue: defaults.string(forKey: "surface") ?? "") ?? .glass }
+    get { Surface(rawValue: defaults.string(forKey: "surface") ?? "") ?? .basic }
     set { defaults.set(newValue.rawValue, forKey: "surface"); onSizeChange?() }
   }
 
@@ -366,7 +363,8 @@ final class PreviewCard: NSView {
     shadow.shadowBlurRadius = cardH * (Settings.shared.surface == .neon ? 0.28 : 0.18)
     shadow.shadowOffset = NSSize(width: 0, height: -cardH * 0.06)
     shadow.set()
-    let solid = !Settings.shared.surface.isTranslucent
+    let surface = Settings.shared.surface
+    let solid = !surface.isTranslucent
     if solid {
       palette.solidFill.setFill()
     } else {
@@ -382,7 +380,7 @@ final class PreviewCard: NSView {
       card.fill()
       NSGraphicsContext.restoreGraphicsState()
     }
-    if Settings.shared.surface == .aurora {
+    if surface == .aurora {
       // The same two clouds the card draws, so the preview is not a prettier lie.
       NSGraphicsContext.saveGraphicsState()
       cardPath.addClip()

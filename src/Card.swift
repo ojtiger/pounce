@@ -59,11 +59,8 @@ struct Palette {
     }
     let accent = (settings.accent.color ?? NSColor.controlAccentColor).usingColorSpace(.deviceRGB) ?? NSColor.systemBlue
     let h = accent.hueComponent
-    // 모노 is the one theme that answers "which app is this?" with nothing: colour is taken out
-    // everywhere, so the hue below is only kept alive to keep the arithmetic in one shape.
-    let colourful = surface != .mono
-    let sat: (CGFloat) -> CGFloat = { colourful ? $0 : 0 }
-    tint = colourful ? accent : NSColor(calibratedWhite: isDark ? 0.72 : 0.45, alpha: 1)
+    let sat: (CGFloat) -> CGFloat = { $0 }
+    tint = accent
     if isDark {
       warm = NSColor(calibratedHue: Palette.wrap(h + 0.09), saturation: sat(0.85), brightness: 0.95, alpha: 1)
       cool = NSColor(calibratedHue: Palette.wrap(h - 0.14), saturation: sat(0.9), brightness: 0.9, alpha: 1)
@@ -75,8 +72,8 @@ struct Palette {
       pillHover = NSColor.white.withAlphaComponent(0.26)
       pillPressed = NSColor.white.withAlphaComponent(0.36)
       pillBorder = NSColor.white.withAlphaComponent(0.2)
-      sweep = NSColor.white.withAlphaComponent(0.28)
-      blobAlpha = 0.38
+      sweep = NSColor.white.withAlphaComponent(0.44)
+      blobAlpha = 0.5
       wash = NSColor(calibratedHue: h, saturation: sat(0.5), brightness: 0.2, alpha: 0.28)
       // Neon sits on near-black so the edge light has something to read against.
       solidFill = surface == .neon
@@ -97,8 +94,8 @@ struct Palette {
       pillHover = NSColor.white.withAlphaComponent(0.85)
       pillPressed = NSColor.white.withAlphaComponent(1)
       pillBorder = ink.withAlphaComponent(0.12)
-      sweep = NSColor.white.withAlphaComponent(0.55)
-      blobAlpha = 0.22
+      sweep = NSColor.white.withAlphaComponent(0.72)
+      blobAlpha = 0.32
       wash = NSColor(calibratedHue: h, saturation: sat(0.12), brightness: 1, alpha: 0.4)
       solidFill = surface == .neon
         ? NSColor(calibratedHue: h, saturation: sat(0.10), brightness: 0.97, alpha: 1)
@@ -124,13 +121,13 @@ struct Palette {
     return [NSColor.white.withAlphaComponent(1), ink.withAlphaComponent(0.1), ink.withAlphaComponent(0.16)]
   }
 
-  private static func wrap(_ h: CGFloat) -> CGFloat { h < 0 ? h + 1 : (h > 1 ? h - 1 : h) }
+  static func wrap(_ h: CGFloat) -> CGFloat { h < 0 ? h + 1 : (h > 1 ? h - 1 : h) }
 }
 
 // MARK: - Sheen
 
-/// Layer-hosting overlay above the glass: nothing but a one-off light sweep on arrival.
-/// The glass itself is native, so the background shows through untouched.
+/// Layer-hosting overlay above the glass: a hairline rim and a light sweep that crosses the card
+/// whenever it arrives or gains a notice.
 private final class Sheen: NSView {
   private let sweep = CAGradientLayer()
   private let rim = CAShapeLayer()
@@ -188,7 +185,7 @@ private final class Sheen: NSView {
     let slide = CABasicAnimation(keyPath: "position.x")
     slide.fromValue = -b.width * 0.2
     slide.toValue = b.width * 1.2
-    slide.duration = 0.8
+    slide.duration = 0.95
     slide.beginTime = CACurrentMediaTime() + 0.12
     slide.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 0.1, 0.3, 1)
     slide.fillMode = .backwards
@@ -196,7 +193,7 @@ private final class Sheen: NSView {
     let fade = CAKeyframeAnimation(keyPath: "opacity")
     fade.values = [0, 1, 1, 0]
     fade.keyTimes = [0, 0.15, 0.75, 1]
-    fade.duration = 0.9
+    fade.duration = 1.05
     fade.beginTime = CACurrentMediaTime() + 0.12
     sweep.add(fade, forKey: "sweepFade")
   }
@@ -355,6 +352,7 @@ final class CardPanel: NSPanel {
     root.addSubview(shadow)
 
     // Everything inside is clipped to the card shape, so no effect spills outside the card.
+    let surface = Settings.shared.surface
     glassHost.wantsLayer = true
     glassHost.layer?.cornerRadius = Style.corner
     glassHost.layer?.cornerCurve = .continuous
@@ -364,7 +362,6 @@ final class CardPanel: NSPanel {
 
     // Native Liquid Glass on macOS 26; frosted material before that. Content lives inside the
     // glass's contentView so the system renders text and refraction together.
-    let surface = Settings.shared.surface
     let glass: NSView
     if !surface.isTranslucent {
       // Nothing shows through: a plain card, the fastest to draw and the easiest to read over a
@@ -382,9 +379,8 @@ final class CardPanel: NSPanel {
       let g = NSGlassEffectView()
       g.cornerRadius = Style.corner
       g.style = .regular
-      // Mono leans on the glass itself with a colourless wash; aurora keeps its tint quiet so the
-      // clouds carry the colour; glass sits in between.
-      let strength: CGFloat = surface == .mono ? 0.16 : (surface == .aurora ? 0.04 : 0.07)
+      // 오로라는 구름이 색을 맡으므로 유리 자체의 색조는 더 옅게 둔다.
+      let strength: CGFloat = surface == .aurora ? 0.04 : 0.07
       g.tintColor = palette.tint.withAlphaComponent(palette.isDark ? strength : strength + 0.02)
       let host = NSView()
       g.contentView = host
@@ -410,7 +406,10 @@ final class CardPanel: NSPanel {
     if surface == .aurora, let host = contentHost.layer {
       // Two soft clouds of the app's own warm and cool tones, sitting under everything the card
       // draws. Placed off-centre and off-edge so the card never looks like a symmetrical gradient.
-      for (colour, centre) in [(palette.warm, CGPoint(x: 0.18, y: 0.9)), (palette.cool, CGPoint(x: 0.92, y: 0.05))] {
+      // 색은 한자리에 머물지 않고 색상환을 천천히 돈다 — 둘의 위상을 반대로 두어, 한쪽이 붉어질
+      // 때 다른 쪽이 푸르러지며 카드 위에서 색이 섞인다. 오로라라는 이름값은 여기서 나온다.
+      let clouds = [(palette.warm, CGPoint(x: 0.18, y: 0.9), 0.0), (palette.cool, CGPoint(x: 0.92, y: 0.05), 0.5)]
+      for (colour, centre, phase) in clouds {
         let blob = CAGradientLayer()
         blob.type = .radial
         blob.colors = [colour.withAlphaComponent(palette.blobAlpha).cgColor,
@@ -419,8 +418,24 @@ final class CardPanel: NSPanel {
         blob.startPoint = centre
         blob.endPoint = CGPoint(x: centre.x + 0.85, y: centre.y + 0.85)
         blob.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+        // 어두운 바탕에서는 둘이 겹치는 자리가 빛나야 오로라로 읽힌다. 밝은 바탕에서 같은 합성을
+        // 쓰면 색이 흰색으로 날아가므로 쓰지 않는다.
+        if palette.isDark { blob.compositingFilter = "screenBlendMode" }
         host.insertSublayer(blob, at: 0)
         auroraBlobs.append(blob)
+        guard !reduceMotion, let base = colour.usingColorSpace(.deviceRGB) else { continue }
+        let turn = CAKeyframeAnimation(keyPath: "colors")
+        turn.values = (0...12).map { step -> [CGColor] in
+          let hue = Palette.wrap(base.hueComponent + CGFloat(step) / 12)
+          let c = NSColor(hue: hue, saturation: base.saturationComponent,
+                          brightness: base.brightnessComponent, alpha: 1)
+          return [c.withAlphaComponent(palette.blobAlpha).cgColor, c.withAlphaComponent(0).cgColor]
+        }
+        turn.duration = 14
+        turn.timeOffset = 14 * phase
+        turn.repeatCount = .infinity
+        turn.calculationMode = .linear
+        blob.add(turn, forKey: "hue")
       }
     }
 

@@ -291,6 +291,15 @@ final class CardPanel: NSPanel {
   /// A card opens folded at four lines. Scrolling on it — the movement you would make to read on —
   /// opens the rest, so nothing has to be aimed at.
   private var expanded = false
+  /// 옆으로 민 거리와 처음 민 쪽. 스와이프 하나를 여러 이벤트에 걸쳐 알아보기 위한 것.
+  private var swipe: CGFloat = 0
+  private var swipeDir: CGFloat = 0
+  /// 손을 뗀 때를 알려주지 않는 장치를 위한 시계.
+  private var swipeEnd: DispatchWorkItem?
+  /// 밀고 있는 중인지.
+  private var swiping = false
+  /// 여기까지 밀고 놓으면 카드가 닫힌다.
+  private let swipeThreshold: CGFloat = 34
   private var folded = false
   /// A notification's buttons are pressable only while its own banner exists. macOS keeps a couple
   /// alive and destroys the rest, so this is asked per notification, not per card: on a card holding
@@ -856,8 +865,90 @@ final class CardPanel: NSPanel {
   }
 
   override func scrollWheel(with event: NSEvent) {
-    guard folded, !expanded, abs(event.scrollingDeltaY) > 0.5 else { return }
+    guard !isClosing else { return }
+    let dx = event.scrollingDeltaX, dy = event.scrollingDeltaY
+
+    if event.phase == .began { swipe = 0; swipeDir = 0 }
+    if event.phase == .ended || event.phase == .cancelled { endSwipe(); return }
+
+    // 옆으로 미는 몸짓은 치우라는 뜻이다. 위아래로 읽으려다 손가락이 조금 기우는 일은 흔하므로,
+    // 가로가 세로보다 확실히 클 때만 민 것으로 센다.
+    if abs(dx) > abs(dy) * 1.6 {
+      swiping = true
+      swipe += dx
+      // 처음 민 쪽이 그 스와이프의 방향이다. 되돌리는 것은 취소이지 반대쪽 스와이프가 아니다.
+      if swipeDir == 0, abs(swipe) > 4 { swipeDir = swipe < 0 ? -1 : 1 }
+      followSwipe()
+      // 마우스 휠은 손을 뗀 때를 알려주지 않는다. 잠시 멈추면 끝난 것으로 본다.
+      if event.phase.isEmpty { scheduleSwipeEnd() }
+      return
+    }
+    guard settled, folded, !expanded, abs(dy) > 0.5 else { return }
     expand()
+  }
+
+  /// 미는 대로 카드가 따라가고, 문턱에 다가갈수록 연해진다. 손끝에 무엇이 일어나는지 보이지
+  /// 않으면 얼마나 더 밀어야 하는지 알 수 없다.
+  ///
+  /// 움직이는 것은 창이 아니라 창 안의 내용이다. 창까지 옮기면 카드가 포인터 아래를 벗어나는
+  /// 순간 스크롤이 더는 이 창에 오지 않아, 밀던 것을 되돌릴 길이 사라진다.
+  private func followSwipe() {
+    guard !reduceMotion, let layer = root.layer, swipeDir != 0 else { return }
+    // 처음 민 쪽으로만 간다. 되돌리는 동안 카드는 제자리로 다가올 뿐, 반대쪽으로는 넘어가지 않는다.
+    let forward = max(0, swipe * swipeDir)
+    let progress = min(1, forward / swipeThreshold)
+    // 고무줄. 처음에는 손을 거의 그대로 따라오고, 밀수록 당기는 힘이 세져 점점 덜 가지만
+    // 결코 딱 멈추지는 않는다 — 끝까지 억지로 끌려오는 그 저항이 손에 닿아야 한다.
+    // iOS 스크롤이 경계 밖에서 쓰는 식과 같다: 밀어낸 거리가 늘수록 나아가는 몫이 줄어든다.
+    let give: CGFloat = 48   // 고무줄이 끝내 늘어날 수 있는 만큼(투명한 여백 안)
+    let stiffness: CGFloat = 0.55
+    let pulled = (1 - 1 / (forward * stiffness / give + 1)) * give
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    layer.sublayerTransform = CATransform3DMakeTranslation(swipeDir * pulled, 0, 0)
+    CATransaction.commit()
+    alphaValue = 1 - 0.45 * progress
+  }
+
+  /// 밀기를 마친 순간에만 판정한다. 충분히 밀고 놓았으면 모서리의 X 를 누른 것과 같고,
+  /// 밀다가 시작한 자리보다 뒤로 되돌렸으면 없던 일이 된다.
+  private func endSwipe() {
+    swipeEnd?.cancel()
+    let travelled = swipe * swipeDir
+    let wasSwiping = swiping
+    swipe = 0
+    swipeDir = 0
+    swiping = false
+    guard travelled > swipeThreshold else {
+      guard wasSwiping, !isClosing else { return }
+      settleBack()
+      return
+    }
+    closeClicked()
+  }
+
+  /// 없던 일이 되었으니 제자리로 돌아간다.
+  private func settleBack() {
+    NSAnimationContext.runAnimationGroup { ctx in
+      ctx.duration = 0.18
+      ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+      animator().alphaValue = 1
+    }
+    guard let layer = root.layer else { return }
+    let back = CABasicAnimation(keyPath: "sublayerTransform")
+    back.fromValue = NSValue(caTransform3D: layer.sublayerTransform)
+    back.toValue = NSValue(caTransform3D: CATransform3DIdentity)
+    back.duration = 0.18
+    back.timingFunction = CAMediaTimingFunction(name: .easeOut)
+    layer.sublayerTransform = CATransform3DIdentity
+    layer.add(back, forKey: "swipeBack")
+  }
+
+  private func scheduleSwipeEnd() {
+    swipeEnd?.cancel()
+    let work = DispatchWorkItem { [weak self] in self?.endSwipe() }
+    swipeEnd = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
   }
 
   /// Unfolds the body. The countdown stops while it is open — a card that vanishes mid-sentence is
@@ -907,7 +998,7 @@ final class CardPanel: NSPanel {
   }
 
   override func mouseExited(with event: NSEvent) {
-    guard !isDragging else { return }
+    guard !isDragging, !swiping else { return }
     logD("card \(group.app): mouse out")
     isHovered = false
     // The time spent reading is given back to every notice on the card, so the dots pick up where
@@ -1143,9 +1234,12 @@ final class CardPanel: NSPanel {
       })
       return
     }
-    let to = transform(scale: 0.8, dy: 22)
+    // 옆으로 밀려 있던 카드는 밀린 자리에서 그대로 위로 간다. 사라지기 직전에 제자리로
+    // 튀어 돌아가면 손이 하던 일과 화면이 어긋난다.
+    let from = layer.sublayerTransform
+    let to = CATransform3DConcat(transform(scale: 0.8, dy: 22), CATransform3DMakeTranslation(from.m41, 0, 0))
     let shrink = CABasicAnimation(keyPath: "sublayerTransform")
-    shrink.fromValue = NSValue(caTransform3D: CATransform3DIdentity)
+    shrink.fromValue = NSValue(caTransform3D: from)
     shrink.toValue = NSValue(caTransform3D: to)
     shrink.duration = 0.24
     shrink.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0, 1, 1)

@@ -24,6 +24,10 @@ brew install --cask ojtiger/tap/pounce
 
 첫 실행 때 접근성 권한을 허용해야 합니다.
 
+[Releases](https://github.com/ojtiger/pounce/releases/latest) 에서 직접 받을 수도 있습니다. 다만 공증을
+받지 않은 앱이라 처음 열 때 macOS 가 막으므로, 시스템 설정 > 개인정보 보호 및 보안에서 한 번 허용해
+주어야 합니다. 홈브루로 설치하면 이 단계가 없습니다.
+
 ## 요구 사항
 
 macOS 14 이상, 애플 실리콘·인텔 모두. 무료, 오픈소스.

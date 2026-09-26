@@ -146,15 +146,15 @@ Pounce 종료|Quit Pounce|Pounce を終了|退出 Pounce|結束 Pounce|Salir de 
 내려받는 중…|Downloading…|ダウンロード中…|下载中…|下載中…|Descargando…|Téléchargement…|Wird geladen…|Download in corso…|Baixando…|Загрузка…|Downloaden…|Pobieranie…|İndiriliyor…|Đang tải…|Mengunduh…
 설치 중…|Installing…|インストール中…|安装中…|安裝中…|Instalando…|Installation…|Wird installiert…|Installazione…|Instalando…|Установка…|Installeren…|Instalowanie…|Yükleniyor…|Đang cài…|Memasang…
 설치 완료 · 다시 시작합니다|Installed · restarting|インストール完了 · 再起動します|安装完成 · 正在重新启动|安裝完成 · 即將重新啟動|Instalado · reiniciando|Installé · redémarrage|Installiert · Neustart|Installato · riavvio|Instalado · reiniciando|Установлено · перезапуск|Geïnstalleerd · opnieuw starten|Zainstalowano · ponowne uruchamianie|Yüklendi · yeniden başlatılıyor|Đã cài · đang khởi động lại|Terpasang · memulai ulang
-왼쪽 위|Top left|左上|左上|左上|Arriba izquierda|En haut à gauche|Oben links|In alto a sinistra|Superior esquerdo|Слева вверху|Linksboven|Lewy górny|Sol üst|Trên trái|Kiri atas
-위 가운데|Top center|上中央|顶部居中|上方置中|Arriba centro|En haut au centre|Oben mittig|In alto al centro|Superior centro|Сверху по центру|Bovenaan midden|Górny środek|Üst orta|Trên giữa|Tengah atas
-오른쪽 위|Top right|右上|右上|右上|Arriba derecha|En haut à droite|Oben rechts|In alto a destra|Superior direito|Справа вверху|Rechtsboven|Prawy górny|Sağ üst|Trên phải|Kanan atas
-왼쪽 가운데|Left|左中央|左侧居中|左側置中|Izquierda centro|À gauche au centre|Links mittig|A sinistra al centro|Esquerda centro|Слева по центру|Links midden|Lewy środek|Sol orta|Giữa trái|Kiri tengah
-가운데|Center|中央|居中|置中|Centro|Au centre|Mitte|Centro|Centro|По центру|Midden|Środek|Orta|Chính giữa|Tengah
-오른쪽 가운데|Right|右中央|右侧居中|右側置中|Derecha centro|À droite au centre|Rechts mittig|A destra al centro|Direita centro|Справа по центру|Rechts midden|Prawy środek|Sağ orta|Giữa phải|Kanan tengah
-왼쪽 아래|Bottom left|左下|左下|左下|Abajo izquierda|En bas à gauche|Unten links|In basso a sinistra|Inferior esquerdo|Слева внизу|Linksonder|Lewy dolny|Sol alt|Dưới trái|Kiri bawah
-아래 가운데|Bottom center|下中央|底部居中|下方置中|Abajo centro|En bas au centre|Unten mittig|In basso al centro|Inferior centro|Снизу по центру|Onderaan midden|Dolny środek|Alt orta|Dưới giữa|Tengah bawah
-오른쪽 아래|Bottom right|右下|右下|右下|Abajo derecha|En bas à droite|Unten rechts|In basso a destra|Inferior direito|Справа внизу|Rechtsonder|Prawy dolny|Sağ alt|Dưới phải|Kanan bawah
+위 - 왼쪽|Top - Left|上 - 左|上 - 左|上 - 左|Arriba - Izquierda|Haut - Gauche|Oben - Links|Alto - Sinistra|Topo - Esquerda|Верх - Слева|Boven - Links|Góra - Lewo|Üst - Sol|Trên - Trái|Atas - Kiri
+위 - 가운데|Top - Center|上 - 中央|上 - 居中|上 - 置中|Arriba - Centro|Haut - Centre|Oben - Mitte|Alto - Centro|Topo - Centro|Верх - Центр|Boven - Midden|Góra - Środek|Üst - Orta|Trên - Giữa|Atas - Tengah
+위 - 오른쪽|Top - Right|上 - 右|上 - 右|上 - 右|Arriba - Derecha|Haut - Droite|Oben - Rechts|Alto - Destra|Topo - Direita|Верх - Справа|Boven - Rechts|Góra - Prawo|Üst - Sağ|Trên - Phải|Atas - Kanan
+중앙 - 왼쪽|Middle - Left|中 - 左|中 - 左|中 - 左|Medio - Izquierda|Milieu - Gauche|Mitte - Links|Centro - Sinistra|Meio - Esquerda|Середина - Слева|Midden - Links|Środek - Lewo|Orta - Sol|Giữa - Trái|Tengah - Kiri
+중앙 - 가운데|Middle - Center|中 - 中央|中 - 居中|中 - 置中|Medio - Centro|Milieu - Centre|Mitte - Mitte|Centro - Centro|Meio - Centro|Середина - Центр|Midden - Midden|Środek - Środek|Orta - Orta|Giữa - Giữa|Tengah - Tengah
+중앙 - 오른쪽|Middle - Right|中 - 右|中 - 右|中 - 右|Medio - Derecha|Milieu - Droite|Mitte - Rechts|Centro - Destra|Meio - Direita|Середина - Справа|Midden - Rechts|Środek - Prawo|Orta - Sağ|Giữa - Phải|Tengah - Kanan
+아래 - 왼쪽|Bottom - Left|下 - 左|下 - 左|下 - 左|Abajo - Izquierda|Bas - Gauche|Unten - Links|Basso - Sinistra|Base - Esquerda|Низ - Слева|Onder - Links|Dół - Lewo|Alt - Sol|Dưới - Trái|Bawah - Kiri
+아래 - 가운데|Bottom - Center|下 - 中央|下 - 居中|下 - 置中|Abajo - Centro|Bas - Centre|Unten - Mitte|Basso - Centro|Base - Centro|Низ - Центр|Onder - Midden|Dół - Środek|Alt - Orta|Dưới - Giữa|Bawah - Tengah
+아래 - 오른쪽|Bottom - Right|下 - 右|下 - 右|下 - 右|Abajo - Derecha|Bas - Droite|Unten - Rechts|Basso - Destra|Base - Direita|Низ - Справа|Onder - Rechts|Dół - Prawo|Alt - Sağ|Dưới - Phải|Bawah - Kanan
 시스템|System|システム|系统|系統|Sistema|Système|System|Sistema|Sistema|Системный|Systeem|System|Sistem|Hệ thống|Sistem
 라이트|Light|ライト|浅色|淺色|Claro|Clair|Hell|Chiaro|Claro|Светлая|Licht|Jasny|Açık|Sáng|Terang
 다크|Dark|ダーク|深色|深色|Oscuro|Sombre|Dunkel|Scuro|Escuro|Тёмная|Donker|Ciemny|Koyu|Tối|Gelap

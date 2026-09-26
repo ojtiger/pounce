@@ -9,8 +9,8 @@ struct Main {
     let app = NSApplication.shared
     let delegate = AppDelegate()
     app.delegate = delegate
-    // 독과 ⌘Tab 에 서는 보통 앱이다. 카드는 활성화하지 않는 판이라 떠도 다른 앱의 초점을 뺏지 않는다.
-    app.setActivationPolicy(.regular)
+    // 평소에는 메뉴 막대에만 있다. 설정 창이 떠 있는 동안만 독과 ⌘Tab 에 선다(showSettings).
+    app.setActivationPolicy(.accessory)
     app.run()
   }
 }
@@ -90,7 +90,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     if let window = settingsWindowStore { return window }
     let window = SettingsWindow(actions: settingsActions)
     settingsWindowStore = window
+    // 설정 창을 닫으면 독과 ⌘Tab 에서 다시 빠진다.
+    NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window.window,
+                                           queue: .main) { _ in
+      DispatchQueue.main.async { NSApp.setActivationPolicy(.accessory) }
+    }
     return window
+  }
+
+  /// 설정 창을 여는 곳은 모두 여기로 — 창이 떠 있는 동안은 보통 앱처럼 독과 ⌘Tab 에 선다.
+  private func showSettings() {
+    NSApp.setActivationPolicy(.regular)
+    settingsWindow.show()
   }
   private var trustTimer: Timer?
   /// Titles of pinned tests posted through the notification API, waiting to be recognised on the way back.
@@ -274,9 +285,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     previous?.window?.orderOut(nil)
     settingsWindowStore = nil
     guard wasVisible else { return }
-    let window = settingsWindow
-    window.show()
-    window.select(tab: tab)
+    showSettings()
+    settingsWindow.select(tab: tab)
   }
 
   /// A Pounce-branded test notice, built right here so it carries the app's own icon and name.
@@ -459,7 +469,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     return paw
   }
 
-  @objc private func openSettings() { settingsWindow.show() }
+  @objc private func openSettings() { showSettings() }
 
   @objc private func screensChanged() { cards.layout() }
 
@@ -485,15 +495,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// Launching the app while it already runs (Launchpad, Spotlight, `open -a`) or clicking it in the Dock
   /// lands here: the way back to Settings when the paw is hidden.
   func applicationShouldHandleReopen(_: NSApplication, hasVisibleWindows: Bool) -> Bool {
-    settingsWindow.show()
+    showSettings()
     return false
-  }
-
-  /// ⌘Tab 으로 넘어왔는데 띄운 창이 없으면 설정 창을 연다 — 앞으로 가져온 앱이 아무것도 보여주지 않으면
-  /// 넘어간 줄 모른다. 카드는 활성화하지 않는 판이라 카드를 눌러서는 여기 오지 않는다.
-  func applicationDidBecomeActive(_: Notification) {
-    guard !NSApp.windows.contains(where: { $0.isVisible && !($0 is NSPanel) }) else { return }
-    settingsWindow.show()
   }
 
   /// 앱 메뉴 — 설정(⌘,)·종료(⌘Q), 창 메뉴 — 닫기(⌘W).

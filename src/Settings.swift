@@ -8,15 +8,15 @@ enum Anchor: String, CaseIterable {
 
   var label: String {
     switch self {
-    case .topLeft: return T("왼쪽 위")
-    case .top: return T("위 가운데")
-    case .topRight: return T("오른쪽 위")
-    case .left: return T("왼쪽 가운데")
-    case .center: return T("가운데")
-    case .right: return T("오른쪽 가운데")
-    case .bottomLeft: return T("왼쪽 아래")
-    case .bottom: return T("아래 가운데")
-    case .bottomRight: return T("오른쪽 아래")
+    case .topLeft: return T("위 - 왼쪽")
+    case .top: return T("위 - 가운데")
+    case .topRight: return T("위 - 오른쪽")
+    case .left: return T("중앙 - 왼쪽")
+    case .center: return T("중앙 - 가운데")
+    case .right: return T("중앙 - 오른쪽")
+    case .bottomLeft: return T("아래 - 왼쪽")
+    case .bottom: return T("아래 - 가운데")
+    case .bottomRight: return T("아래 - 오른쪽")
     }
   }
 

@@ -145,6 +145,9 @@
 
   /* 카드. 수치는 src/Card.swift 그대로: 480 · r28 · pad 22 · icon 56 · gap 16 */
   /* will-change·filter 를 카드에 걸면 그 안의 유리가 뒤를 못 보고 흐림이 사라진다 */
+  /* 지난 알림을 넘길 때 카드를 띠로 복제해 롤에 감는다 */
+  .rollfx { position: absolute; inset: 0 0 auto 0; pointer-events: none; perspective: 900px; }
+  .rollfx .card { position: absolute; left: 0; top: 0; width: 100%; backface-visibility: hidden; }
   .card { position: relative; border-radius: 28px; opacity: 0; cursor: default; touch-action: pan-y; text-align: left;
           -webkit-user-select: none; user-select: none; box-shadow: 0 10px 24px rgba(0,0,0,.55);
           --r1: rgba(255,255,255,.42); --r2: rgba(255,255,255,.16); --r3: rgba(255,255,255,.10); }
@@ -211,6 +214,9 @@
   .cues { display: flex; justify-content: center; gap: 52px; margin: 26px 0 0; color: var(--faint); }
   .cue { display: flex; align-items: center; gap: 14px; font-size: 13px; letter-spacing: .01em; }
   .rail { position: relative; display: block; width: 21px; height: 31px; }
+  /* ⌘ 를 누른 채 굴린다 */
+  .key { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 5px; margin-right: -6px;
+         border: 1.5px solid currentColor; border-radius: 6px; font: 600 13px/1 var(--sans); opacity: .9; }
   .rail.h { margin: 0 15px; }
   .rail.s { margin-right: 15px; }
   /* 올려 두면 시계가 선다 — 마우스 옆에 멈춤 표 */
@@ -230,11 +236,12 @@
   @keyframes wheelY { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(10px); } }
   @keyframes wheelX { 0%, 100% { transform: translateX(-3.5px); } 50% { transform: translateX(3.5px); } }
 
-  /* 하는 일. 카드와 같은 유리로 빚은 알약 여섯 개 */
-  /* 넓은 화면에서는 세 칸씩 두 줄로 고정해 어느 말이든 한 줄이 외톨이가 되지 않게 한다 */
+  /* 하는 일. 카드와 같은 유리로 빚은 알약 일곱 개 */
+  /* 넓은 화면에서는 네 개·세 개 두 줄로 고정해 어느 말이든 한 줄이 외톨이가 되지 않게 한다 */
   .feats { position: relative; max-width: 1000px; margin: 0 auto; padding: 164px 0 0; text-align: center; }
   .feats h2 { font: 500 clamp(29px, 3.8vw, 50px)/1.22 var(--serif); letter-spacing: -.022em; margin: 0 0 46px; }
-  .fpills { display: grid; grid-template-columns: repeat(3, auto); justify-content: center; justify-items: center; gap: 14px; }
+  .fpills { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .frow { display: flex; justify-content: center; gap: 14px; }
   /* 빛무리는 상자 안에 다 들어가야 한다. 가장자리에서 잘리면 거기 선이 생긴다 */
   .feats::before { content: ""; position: absolute; left: 50%; top: -30px; width: 160%; height: 760px; transform: translateX(-50%);
                    background: radial-gradient(ellipse 40% 44% at 50% 50%, rgba(161,139,255,.16), transparent 72%); pointer-events: none; }
@@ -300,7 +307,8 @@
     .doc dd { font-size: 16px; margin-bottom: 28px; padding-bottom: 28px; }
     .feats { padding-top: 112px; }
     .feats h2 { margin-bottom: 34px; }
-    .fpills { display: flex; flex-wrap: wrap; justify-content: center; gap: 11px; }
+    .fpills { flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 11px; }
+    .frow { display: contents; }
     .fdesc { margin-top: 24px; min-height: 76px; }
     .fdesc p { font-size: 16.5px; }
     .fp { height: 48px; padding: 0 19px; font-size: 15px; gap: 9px; border-radius: 24px; }

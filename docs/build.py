@@ -28,7 +28,7 @@ LANGS = {
     "download": "직접 내려받기",
     "cSpot": "위치", "cTheme": "테마", "cAccent": "강조색",
     "th0": "기본", "th1": "오로라", "th2": "네온", "closeWord": "닫기",
-    "cueHold": "멈춤", "cueOpen": "펼치기", "cueClose": "닫기",
+    "cueHold": "멈춤", "cueOpen": "펼치기", "cueClose": "닫기", "cuePast": "지난 알림",
     "featTitle": "핵심 기능",
     "faqTitle": "자주 묻는 질문",
     "faqDesc": "맥 알림창 위치를 바꾸는 Pounce 의 설치, 손쉬운 사용 권한, 업데이트, 문제 해결에 대해 자주 묻는 질문.",
@@ -61,6 +61,7 @@ LANGS = {
       ("밀어서 닫기", "옆으로 밀면 사라지고, 마우스를 올려 두면 그동안 기다립니다."),
       ("알림 버튼 유지", "답장처럼 입력 칸이 필요한 버튼은 진짜 배너를 카드가 있던 자리로 불러옵니다."),
       ("알림 설정 유지", "집중 모드도 소리도 알림 센터 기록도 건드리지 않습니다."),
+      ("지난 알림 보기", "⌘ 를 누른 채 휠을 굴리면 알림 센터에 남아 있는 알림을 카드로 한 장씩 넘겨 봅니다. 아이폰에서 온 알림도 함께 나옵니다. 설정에서 켜고, 전체 디스크 접근 권한이 필요합니다."),
     ],
     "req": "macOS 14 이상",
     "notes": [
@@ -84,7 +85,7 @@ LANGS = {
     "download": "Download directly",
     "cSpot": "Position", "cTheme": "Theme", "cAccent": "Accent",
     "th0": "Default", "th1": "Aurora", "th2": "Neon", "closeWord": "Close",
-    "cueHold": "Pause", "cueOpen": "Expand", "cueClose": "Dismiss",
+    "cueHold": "Pause", "cueOpen": "Expand", "cueClose": "Dismiss", "cuePast": "Past ones",
     "featTitle": "Key features",
     "faqTitle": "Frequently asked questions",
     "faqDesc": "Questions people ask about Pounce, the Mac app that moves macOS notification banners: install, Accessibility permission, updates and troubleshooting.",
@@ -117,6 +118,7 @@ LANGS = {
       ("Swipe to dismiss", "Push it sideways and it goes. Keep the pointer on it and it waits."),
       ("Actions kept", "Reply and the like bring the real banner back to where the card stood."),
       ("Settings kept", "Focus, sounds and Notification Center history stay as they are."),
+      ("Past notifications", "Hold ⌘ and scroll to flip through what is left in Notification Center, one card at a time — iPhone notifications included. Turn it on in settings; it needs Full Disk Access."),
     ],
     "req": "macOS 14 or later",
     "notes": [
@@ -140,7 +142,7 @@ LANGS = {
     "download": "直接ダウンロード",
     "cSpot": "位置", "cTheme": "テーマ", "cAccent": "アクセント",
     "th0": "標準", "th1": "オーロラ", "th2": "ネオン", "closeWord": "閉じる",
-    "cueHold": "一時停止", "cueOpen": "開く", "cueClose": "閉じる",
+    "cueHold": "一時停止", "cueOpen": "開く", "cueClose": "閉じる", "cuePast": "過去の通知",
     "featTitle": "主な機能",
     "faqTitle": "よくある質問",
     "faqDesc": "Mac の通知バナーの位置を変える Pounce について、インストール、アクセシビリティの許可、アップデート、うまく動かないときの質問。",
@@ -173,6 +175,7 @@ LANGS = {
       ("スワイプで閉じる", "横へ押すと消え、ポインタを乗せている間は待ちます。"),
       ("通知のアクション", "返信のようなボタンは、本物のバナーをカードのあった位置に呼び戻します。"),
       ("設定はそのまま", "集中モードも音も通知センターの履歴も触りません。"),
+      ("過去の通知", "⌘ を押しながらスクロールすると、通知センターに残っている通知をカードで一枚ずつめくれます。iPhone からの通知も並びます。設定でオンにし、フルディスクアクセスが必要です。"),
     ],
     "req": "macOS 14 以降",
     "notes": [
@@ -196,7 +199,7 @@ LANGS = {
     "download": "直接下载",
     "cSpot": "位置", "cTheme": "主题", "cAccent": "强调色",
     "th0": "默认", "th1": "极光", "th2": "霓虹", "closeWord": "关闭",
-    "cueHold": "暂停", "cueOpen": "展开", "cueClose": "关闭",
+    "cueHold": "暂停", "cueOpen": "展开", "cueClose": "关闭", "cuePast": "以往通知",
     "featTitle": "核心功能",
     "faqTitle": "常见问题",
     "faqDesc": "关于更改 Mac 通知横幅位置的应用 Pounce：安装、辅助功能权限、更新和常见故障的问答。",
@@ -229,6 +232,7 @@ LANGS = {
       ("滑动关闭", "向旁边一推就消失，指针停在上面就一直等。"),
       ("通知操作", "回复这类按钮会把真正的横幅带回卡片原来的位置。"),
       ("设置不变", "专注模式、提示音和通知中心的记录都不动。"),
+      ("以往通知", "按住 ⌘ 滚动，就能一张张翻看通知中心里留下的通知，来自 iPhone 的也在其中。需在设置中开启，并授予完全磁盘访问权限。"),
     ],
     "req": "macOS 14 及以上",
     "notes": [
@@ -367,6 +371,9 @@ STYLE = """  :root {
 
   /* 카드. 수치는 src/Card.swift 그대로: 480 · r28 · pad 22 · icon 56 · gap 16 */
   /* will-change·filter 를 카드에 걸면 그 안의 유리가 뒤를 못 보고 흐림이 사라진다 */
+  /* 지난 알림을 넘길 때 카드를 띠로 복제해 롤에 감는다 */
+  .rollfx { position: absolute; inset: 0 0 auto 0; pointer-events: none; perspective: 900px; }
+  .rollfx .card { position: absolute; left: 0; top: 0; width: 100%; backface-visibility: hidden; }
   .card { position: relative; border-radius: 28px; opacity: 0; cursor: default; touch-action: pan-y; text-align: left;
           -webkit-user-select: none; user-select: none; box-shadow: 0 10px 24px rgba(0,0,0,.55);
           --r1: rgba(255,255,255,.42); --r2: rgba(255,255,255,.16); --r3: rgba(255,255,255,.10); }
@@ -433,6 +440,9 @@ STYLE = """  :root {
   .cues { display: flex; justify-content: center; gap: 52px; margin: 26px 0 0; color: var(--faint); }
   .cue { display: flex; align-items: center; gap: 14px; font-size: 13px; letter-spacing: .01em; }
   .rail { position: relative; display: block; width: 21px; height: 31px; }
+  /* ⌘ 를 누른 채 굴린다 */
+  .key { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 5px; margin-right: -6px;
+         border: 1.5px solid currentColor; border-radius: 6px; font: 600 13px/1 var(--sans); opacity: .9; }
   .rail.h { margin: 0 15px; }
   .rail.s { margin-right: 15px; }
   /* 올려 두면 시계가 선다 — 마우스 옆에 멈춤 표 */
@@ -452,11 +462,12 @@ STYLE = """  :root {
   @keyframes wheelY { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(10px); } }
   @keyframes wheelX { 0%, 100% { transform: translateX(-3.5px); } 50% { transform: translateX(3.5px); } }
 
-  /* 하는 일. 카드와 같은 유리로 빚은 알약 여섯 개 */
-  /* 넓은 화면에서는 세 칸씩 두 줄로 고정해 어느 말이든 한 줄이 외톨이가 되지 않게 한다 */
+  /* 하는 일. 카드와 같은 유리로 빚은 알약 일곱 개 */
+  /* 넓은 화면에서는 네 개·세 개 두 줄로 고정해 어느 말이든 한 줄이 외톨이가 되지 않게 한다 */
   .feats { position: relative; max-width: 1000px; margin: 0 auto; padding: 164px 0 0; text-align: center; }
   .feats h2 { font: 500 clamp(29px, 3.8vw, 50px)/1.22 var(--serif); letter-spacing: -.022em; margin: 0 0 46px; }
-  .fpills { display: grid; grid-template-columns: repeat(3, auto); justify-content: center; justify-items: center; gap: 14px; }
+  .fpills { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .frow { display: flex; justify-content: center; gap: 14px; }
   /* 빛무리는 상자 안에 다 들어가야 한다. 가장자리에서 잘리면 거기 선이 생긴다 */
   .feats::before { content: ""; position: absolute; left: 50%; top: -30px; width: 160%; height: 760px; transform: translateX(-50%);
                    background: radial-gradient(ellipse 40% 44% at 50% 50%, rgba(161,139,255,.16), transparent 72%); pointer-events: none; }
@@ -522,7 +533,8 @@ STYLE = """  :root {
     .doc dd { font-size: 16px; margin-bottom: 28px; padding-bottom: 28px; }
     .feats { padding-top: 112px; }
     .feats h2 { margin-bottom: 34px; }
-    .fpills { display: flex; flex-wrap: wrap; justify-content: center; gap: 11px; }
+    .fpills { flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 11px; }
+    .frow { display: contents; }
     .fdesc { margin-top: 24px; min-height: 76px; }
     .fdesc p { font-size: 16.5px; }
     .fp { height: 48px; padding: 0 19px; font-size: 15px; gap: 9px; border-radius: 24px; }
@@ -757,6 +769,7 @@ SCRIPT = """(function () {
   card.addEventListener('pointercancel', up);
   // 카드 위에서 구른 것은 카드가 먹는다. 진짜 배너처럼 뒤 페이지는 따라 움직이지 않는다.
   card.addEventListener('wheel', function (e) {
+    if (e.metaKey) return;   // ⌘ 를 누른 채 굴린 것은 지난 알림 넘기기(아래 stage 가 받는다)
     if (!st.shown || st.closing) return;
     e.preventDefault();
     // 가로가 세로보다 확실히 크면 민 것이다. 앱처럼 고무줄로 따라오고, 판정은 손을 뗀 뒤에 한다.
@@ -778,6 +791,77 @@ SCRIPT = """(function () {
     if (expand()) return;
     bump();
   });
+
+  // 지난 알림 — ⌘ 를 누른 채 굴리면 앱처럼 카드가 롤에 감겨 넘어간다. 아래로 굴리면 더 오래된 쪽.
+  // 카드를 가는 가로 띠로 복제해 롤에 닿은 띠부터 원을 따라 휘게 한다(src/Card.swift RollStage 와 같은 식).
+  var roll = { busy: false, acc: 0, stepped: false, idle: 0 };
+  var BANDS = 16, ROLL_MS = 300, HIDDEN = Math.PI * 0.6;
+  function bands(src) {
+    var wrap = document.createElement('div'), h = src.offsetHeight;
+    wrap.className = 'rollfx';
+    for (var i = 0; i < BANDS; i++) {
+      var c = src.cloneNode(true);
+      c.removeAttribute('id');
+      c.setAttribute('aria-hidden', 'true');
+      c.style.opacity = 1;
+      c.style.clipPath = 'inset(' + (i * h / BANDS - 0.5) + 'px -4px ' + (h - (i + 1) * h / BANDS - 0.5) + 'px -4px)';
+      wrap.appendChild(c);
+    }
+    wrap.h = h;
+    slot.appendChild(wrap);
+    return wrap;
+  }
+  // p 0 → 1. leaving 이면 0 이 제자리, 아니면 1 이 제자리. atTop: 롤이 카드 위에 있는지.
+  function lay(wrap, p, leaving, atTop) {
+    var H = wrap.h, r = Math.min(130, H * 0.65), full = H + r * HIDDEN, travel = (leaving ? p : 1 - p) * full;
+    var fade = leaving ? 1 - p * p : 1 - (1 - p) * (1 - p), kids = wrap.children;
+    for (var i = 0; i < kids.length; i++) {
+      var c = (i + 0.5) * H / BANDS, edge = atTop ? c : H - c, along = travel - edge, y, z = 0, a = 0;
+      if (along <= 0) y = atTop ? -travel : travel;
+      else {
+        var phi = along / r;
+        y = (atTop ? -r * Math.sin(phi) - c : H + r * Math.sin(phi) - c);
+        z = -r * (1 - Math.cos(phi)); a = (atTop ? 1 : -1) * phi;
+      }
+      var wrapFade = Math.max(0, 1 - Math.max(0, along / r) / HIDDEN);
+      kids[i].style.transformOrigin = '50% ' + c + 'px';
+      kids[i].style.transform = 'translate3d(0,' + y.toFixed(2) + 'px,' + z.toFixed(2) + 'px) rotateX(' + a.toFixed(4) + 'rad)';
+      kids[i].style.opacity = (fade * wrapFade).toFixed(3);
+    }
+  }
+  function flip(older) {
+    if (roll.busy) return;
+    if (!st.shown || st.closing) { st.i += older ? 1 : T.notes.length - 1; pop(); return; }
+    ++st.gen;
+    roll.busy = true;
+    var out = bands(card);
+    st.i += older ? 1 : T.notes.length - 1;
+    fill(); st.sx = 0; draw(); st.remain = DURATION; dot.style.setProperty('--p', 1);
+    var inn = bands(card);
+    card.style.opacity = 0;
+    var t0 = performance.now();
+    requestAnimationFrame(function step(now) {
+      var t = Math.min(1, (now - t0) / (RM ? 1 : ROLL_MS)), p = 0.5 - 0.5 * Math.cos(t * Math.PI);
+      lay(out, p, true, older);
+      lay(inn, p, false, !older);
+      if (t < 1) { requestAnimationFrame(step); return; }
+      card.style.opacity = 1;
+      out.remove(); inn.remove();
+      roll.busy = false;
+    });
+  }
+  stage.addEventListener('wheel', function (e) {
+    if (!e.metaKey) return;
+    e.preventDefault();
+    // 한 번 쓸면 한 장 — 잠시 멈출 때까지 나머지는 버린다
+    clearTimeout(roll.idle);
+    roll.idle = setTimeout(function () { roll.acc = 0; roll.stepped = false; }, 180);
+    if (roll.stepped) return;
+    roll.acc += e.deltaY;
+    if (Math.abs(roll.acc) < 30) return;
+    roll.stepped = true;
+    flip(roll.acc > 0);
+  }, { passive: false });
 
   // 조작
   function press(group, btn) { $$('button', group).forEach(function (b) { b.setAttribute('aria-pressed', b === btn ? 'true' : 'false'); }); }
@@ -804,7 +888,7 @@ SCRIPT = """(function () {
     var io = new IntersectionObserver(function (entries) {
       entries.forEach(function (e) {
         if (!e.isIntersecting) return;
-        e.target.style.transitionDelay = (rows.indexOf(e.target) % 3) * 0.07 + 's';
+        e.target.style.transitionDelay = (rows.indexOf(e.target) % 4) * 0.07 + 's';
         e.target.classList.add('in');
         io.unobserve(e.target);
       });
@@ -812,7 +896,7 @@ SCRIPT = """(function () {
     rows.forEach(function (r) { io.observe(r); });
   })();
 
-  // 알약을 누르면 그 설명만 보인다. 여섯 개 모두 글로 들어 있어 눌러 보지 않아도 읽힌다.
+  // 알약을 누르면 그 설명만 보인다. 일곱 개 모두 글로 들어 있어 눌러 보지 않아도 읽힌다.
   (function () {
     var pills = $$('.fp'), descs = $$('.fdesc p');
     $('.fpills') && $('.fpills').addEventListener('click', function (e) {
@@ -948,6 +1032,9 @@ FEAT_ICONS = [
   '<rect x="2.4" y="6.2" width="10.4" height="7.2" rx="3.6"/><path d="M11.8 11.4 17.6 14l-2.5.8-.8 2.5z" fill="currentColor" stroke="none"/></svg>',
   '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">'
   '<path d="M2.8 6.6h8.3M15.1 6.6h2.1M2.8 13.4h3.9M10.7 13.4h6.5"/><circle cx="13.2" cy="6.6" r="1.9"/><circle cx="8.7" cy="13.4" r="1.9"/></svg>',
+  # 지난 알림 — 거꾸로 도는 시계
+  '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+  '<path d="M3.6 10a6.4 6.4 0 1 0 1.9-4.5"/><path d="M3.2 3.4v2.8h2.8"/><path d="M10 6.6V10l2.4 1.6"/></svg>',
 ]
 
 ACCENTS = ["#BF5AF2", "#0A84FF", "#FF375F", "#FF453A", "#FF9F0A", "#FFD60A", "#30D158", "#8E8E93"]
@@ -978,6 +1065,10 @@ def page(code, L):
         % ("true" if i == 0 else "false", i, FEAT_ICONS[i], f[0]) for i, f in enumerate(L["feats"])).rstrip()
     descs = "".join('<p id="fd%d"%s>%s</p>\n      ' % (i, ' class="on"' if i == 0 else "", f[1])
                     for i, f in enumerate(L["feats"])).rstrip()
+    # 네 개·세 개 두 줄로
+    items = pills.split("\n      ")
+    half = (len(items) + 1) // 2
+    pills = '<div class="frow">%s</div>\n      <div class="frow">%s</div>' % ("".join(items[:half]), "".join(items[half:]))
     feats = '<div class="fpills">\n      %s\n    </div>\n    <div class="fdesc">\n      %s\n    </div>' % (pills, descs)
     dock = "".join('<span%s>%s</span>' % (' class="on"' if n in RUNNING else "", icon(n)) for n in DOCK)
     dock += '<hr><span class="on">%s</span>' % icon("paw", up)
@@ -1098,6 +1189,7 @@ TEMPLATE = """<!doctype html>
     <span class="cue"><span class="rail s"><span class="mouse"><i></i></span></span>%(cueHold)s</span>
     <span class="cue"><span class="rail v"><span class="mouse"><i></i></span></span>%(cueOpen)s</span>
     <span class="cue"><span class="rail h"><span class="mouse"><i></i></span></span>%(cueClose)s</span>
+    <span class="cue"><kbd class="key">⌘</kbd><span class="rail v"><span class="mouse"><i></i></span></span>%(cuePast)s</span>
   </div>
 
   <section class="feats">

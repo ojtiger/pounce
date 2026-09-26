@@ -200,6 +200,13 @@ final class Settings {
     set { defaults.set(newValue, forKey: "autoUpdate") }
   }
 
+  /// ⌘+휠로 지난 알림 보기. 알림센터 기록을 읽으려면 전체 디스크 접근 권한이 필요해, 켠 사람에게만 묻는다.
+  var recallWheel: Bool {
+    get { defaults.bool(forKey: "recallWheel") }
+    set { defaults.set(newValue, forKey: "recallWheel"); onRecallWheelChange?() }
+  }
+  var onRecallWheelChange: (() -> Void)?
+
   /// The system sounds a card can chime with.
   static let sounds = ["Basso", "Blow", "Bottle", "Frog", "Funk", "Glass", "Hero", "Morse",
                        "Ping", "Pop", "Purr", "Sosumi", "Submarine", "Tink"]
@@ -465,6 +472,7 @@ final class SettingsWindow: NSWindowController {
   private let debugCheck = NSButton(checkboxWithTitle: T("디버그 로그"), target: nil, action: nil)
   private let menuBarCheck = NSButton(checkboxWithTitle: T("메뉴 막대에서 숨기기"), target: nil, action: nil)
   private let updateCheck = NSButton(checkboxWithTitle: T("자동 업데이트"), target: nil, action: nil)
+  private let recallCheck = NSButton(checkboxWithTitle: T("⌘+휠로 지난 알림 보기"), target: nil, action: nil)
   private var tabHeight: NSLayoutConstraint!
   private let trustLabel = NSTextField(labelWithString: "")
   private var trustTimer: Timer?
@@ -561,6 +569,8 @@ final class SettingsWindow: NSWindowController {
     menuBarCheck.action = #selector(menuBarChanged)
     updateCheck.target = self
     updateCheck.action = #selector(autoUpdateChanged)
+    recallCheck.target = self
+    recallCheck.action = #selector(recallChanged)
     screenPopup.setContentHuggingPriority(.init(1), for: .horizontal)
     durationSlider.setContentHuggingPriority(.init(1), for: .horizontal)
 
@@ -625,6 +635,7 @@ final class SettingsWindow: NSWindowController {
       field(nil, loginCheck),
       field(nil, menuBarField()),
       field(nil, updateCheck),
+      field(nil, recallField()),
       field(nil, debugCheck),
       field(T("접근성 권한"), trust),
       field(nil, tools),
@@ -744,6 +755,19 @@ final class SettingsWindow: NSWindowController {
     v.orientation = .vertical
     v.alignment = .leading
     v.spacing = 3
+    return v
+  }
+
+  /// 전체 디스크 접근 목록에는 앱이 스스로 올라가지 않는다. 사용자가 직접 넣는 길을 체크박스 밑에 적는다.
+  private func recallField() -> NSView {
+    let hint = NSTextField(wrappingLabelWithString: T("전체 디스크 접근 권한이 필요합니다. 켜면 열리는 설정 창에서 목록 아래 + 를 눌러 응용 프로그램 폴더의 Pounce 를 추가하세요."))
+    hint.font = .systemFont(ofSize: 11)
+    hint.textColor = .tertiaryLabelColor
+    let v = NSStackView(views: [recallCheck, hint])
+    v.orientation = .vertical
+    v.alignment = .leading
+    v.spacing = 3
+    hint.widthAnchor.constraint(equalTo: v.widthAnchor).isActive = true
     return v
   }
 
@@ -973,7 +997,7 @@ final class SettingsWindow: NSWindowController {
     return b
   }
 
-  @objc private func refresh() {
+  @objc func refresh() {
     screenPopup.removeAllItems()
     let current = settings.screen.map(Settings.id(of:)) ?? 0
     for screen in NSScreen.screens {
@@ -996,6 +1020,7 @@ final class SettingsWindow: NSWindowController {
     debugCheck.state = Log.shared.debugEnabled ? .on : .off
     menuBarCheck.state = settings.menuBarHidden ? .on : .off
     updateCheck.state = settings.autoUpdate ? .on : .off
+    recallCheck.state = settings.recallWheel ? .on : .off
     languagePopup.selectItem(at: max(0, languagePopup.itemArray.firstIndex { $0.representedObject as? String == settings.language } ?? 0))
     refreshTrust()
     preview.apply()
@@ -1107,6 +1132,10 @@ final class SettingsWindow: NSWindowController {
 
   @objc private func menuBarChanged() { settings.menuBarHidden = menuBarCheck.state == .on }
   @objc private func autoUpdateChanged() { settings.autoUpdate = updateCheck.state == .on }
+  @objc private func recallChanged() {
+    settings.recallWheel = recallCheck.state == .on
+    if settings.recallWheel, !NotificationDB.readable { NotificationDB.openSettings() }
+  }
 
   @objc private func languageChanged() {
     guard let code = languagePopup.selectedItem?.representedObject as? String else { return }

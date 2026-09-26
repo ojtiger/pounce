@@ -1,6 +1,6 @@
 # Pounce
 
-macOS 알림 배너를 화면 원하는 자리로 옮겨 카드로 다시 그리는 메뉴막대 앱.
+macOS 알림 배너를 화면 원하는 자리로 옮겨 카드로 다시 그리는 앱(독·⌘Tab·메뉴막대).
 Swift/AppKit, 의존성 없음, `swiftc` + Makefile 로 빌드한다.
 
 ```
@@ -10,6 +10,7 @@ src/Card.swift         카드 그리기와 배치, 액션 알약
 src/Settings.swift     설정 창(위치·테마·설정·정보 탭)과 UserDefaults
 src/Localization.swift 화면 문자열 표. 한국어 원문이 키, 17개 언어
 src/Updater.swift      새 버전 확인·설치·재실행
+src/History.swift      ⌘+휠로 지난 알림 넘기기 — 알림센터 DB·아이폰 미러링 기록 읽기
 src/AX.swift           접근성 헬퍼와 로그
 src/Crash.swift        죽은 이유를 로그에 남긴다
 docs/                  소개 페이지(GitHub Pages). build.py 로 4개 국어 생성
@@ -82,3 +83,12 @@ make build      # 서명까지만
 
 답장처럼 자기 UI 를 여는 버튼은 배너가 살아남는다. 그때는 진짜 배너를 카드가 서 있던 자리로
 중앙을 맞춰 데려온다. 그 UI 는 알림센터가 자기 안에 그리는 것이라 우리가 다시 그릴 수 없다.
+
+## 지난 알림(⌘+휠)
+
+설정에서 켤 때만 휠 이벤트 탭이 돈다. 맥 알림은 `~/Library/Group Containers/group.com.apple.usernoted/db2/db`
+(SQLite, 전체 디스크 접근 권한), 아이폰 미러링 알림은 앱마다 따로
+`group.com.apple.UserNotifications/Library/UserNotifications/Remote/default/<UUID>/DeliveredNotifications.plist`
+에 있고 번들 ID ↔ UUID 표는 같은 자리의 `Library.plist`(둘 다 키 아카이브). 처음 읽을 때 macOS 가
+"다른 앱의 데이터 접근"을 묻는다. 아이폰 앱 이름은 어디에도 없어 실제 배너를 볼 때 제목으로 짝지어 배운다.
+넘기는 롤은 카드 창이 아니라 화면 크기의 공용 무대 창(RollStage)에서 그린다 — 카드 창 크기를 바꾸면 끊긴다.

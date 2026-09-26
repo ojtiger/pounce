@@ -1138,7 +1138,25 @@ final class CardPanel: NSPanel {
     return CATransform3DTranslate(t, -cx, -cy, 0)
   }
 
-  func present(at frame: NSRect) {
+  // MARK: 넘겨 보기 — 롤(RollStage)
+
+  /// 롤을 도는 동안 이 카드 창은 보이지 않고, 뜬 그림이 공용 무대(RollStage)에서 감기거나 풀린다.
+  private func roll(leaving: Bool, atTop: Bool, done: @escaping () -> Void) {
+    let card = glassHost.frame
+    // 카드 자리만 뜬다. 옆으로 2pt 씩 투명한 여유를 두어, 기운 띠의 옆 가장자리가 안티앨리어싱 없이도
+    // 톱니 없이 풀리게 한다(띠마다 안티앨리어싱을 켜면 무겁다).
+    let shot = card.insetBy(dx: -2, dy: 0)
+    guard let rep = root.bitmapImageRepForCachingDisplay(in: shot) else { done(); return }
+    root.cacheDisplay(in: shot, to: rep)
+    guard let image = rep.cgImage else { done(); return }
+    let onScreen = shot.offsetBy(dx: frame.minX, dy: frame.minY)
+    alphaValue = 0
+    RollStage.shared.run(image: image, rect: onScreen, cardHeight: card.height, scale: backingScaleFactor,
+                         leaving: leaving, atTop: atTop, screen: screen, done: done)
+  }
+
+  /// `slide` 가 0 이 아니면 튀어나오는 대신 롤에서 풀려 나온다(양수는 위 롤).
+  func present(at frame: NSRect, slide: CGFloat = 0) {
     presentedAt = Date()
     startPruning()
     setFrame(frame, display: false)
@@ -1153,6 +1171,14 @@ final class CardPanel: NSPanel {
         ctx.duration = 0.2
         animator().alphaValue = 1
       }
+      scheduleAutoDismiss()
+      return
+    }
+    if slide != 0 {
+      // 반대쪽 롤에서 풀려 나온다 — 아래에서 올라오는 카드(slide < 0)는 아래 롤에서. 다 풀리면 진짜 카드가 선다.
+      // 그림부터 떠서 무대에 올린 뒤(창은 이때 투명해진다) 창을 앞에 둔다 — 한 프레임도 먼저 보이지 않게.
+      roll(leaving: false, atTop: slide > 0) { [weak self] in self?.alphaValue = 1 }
+      orderFrontRegardless()
       scheduleAutoDismiss()
       return
     }
@@ -1218,12 +1244,21 @@ final class CardPanel: NSPanel {
     }
   }
 
-  func dismiss() {
+  /// `slide` 가 0 이 아니면 줄어들며 사라지는 대신 창째로 그만큼 미끄러져 나간다(양수는 위).
+  func dismiss(slide: CGFloat = 0) {
     guard !isClosing else { return }
     logD("card \(group.app): dismiss")
     isClosing = true
     dismissWork?.cancel()
     pruneTimer?.invalidate()
+    if slide != 0, !reduceMotion {
+      // 가는 쪽 롤에 감겨 들어간다 — 위로 가면(slide > 0) 위 롤.
+      roll(leaving: true, atTop: slide > 0) { [weak self] in
+        self?.orderOut(nil)
+        self?.onDismiss?()
+      }
+      return
+    }
     guard !reduceMotion, let layer = root.layer else {
       NSAnimationContext.runAnimationGroup({ ctx in
         ctx.duration = 0.15
@@ -1497,6 +1532,166 @@ final class CountdownRing: NSView {
   }
 }
 
+// MARK: - Roll stage
+
+/// 넘겨 보기의 롤을 그리는 공용 무대 — 화면을 덮는 투명한 창 하나. 지난 알림을 넘길 때 카드는 카드 위(또는
+/// 아래)에 가로로 누운 둥근 롤에 감겨 들어가고, 다음 카드는 반대쪽 롤에서 풀려 나온다. 판 한 장을 통째로
+/// 돌리면 네모난 기둥 면이 넘어가는 것처럼 보이므로, 카드 그림을 가는 가로 띠로 잘라 롤에 닿은 띠부터 차례로
+/// 원을 따라 휘게 한다. 롤은 카드 가장자리 바깥에 앉아 멈춰 있는 카드는 온전히 평평하다.
+///
+/// 카드 창에서 그리면 감긴 부분이 창 밖으로 넘쳐 창을 넓혔다 되돌려야 하고, 그게 넘길 때마다 끊긴다. 무대는
+/// 화면 크기로 한 번 만들어 두고 크기를 바꾸지 않는다. 나가는 롤과 들어오는 롤을 한 시계(디스플레이 링크)로 같이 그린다.
+final class RollStage {
+  static let shared = RollStage()
+
+  private static let duration: CFTimeInterval = 0.3
+  private static let strips = 40
+  /// 이만큼 감기면 다 흐려져 보이지 않는다
+  private static let hidden = CGFloat.pi * 0.6
+
+  private struct Roll {
+    let container: CALayer
+    let rect: CGRect          // 무대 좌표의 카드 자리(옆 여유 포함)
+    let cardHeight: CGFloat
+    let leaving: Bool
+    let atTop: Bool
+    let start: CFTimeInterval
+    let done: () -> Void
+  }
+
+  private var panel: NSPanel?
+  private var rolls: [Roll] = []
+  private var link: CADisplayLink?
+
+  func run(image: CGImage, rect: CGRect, cardHeight: CGFloat, scale: CGFloat, leaving: Bool, atTop: Bool,
+           screen: NSScreen?, done: @escaping () -> Void) {
+    guard let screenFrame = (screen ?? NSScreen.main)?.frame else { done(); return }
+    let panel = stage(on: screenFrame)
+    guard let host = panel.contentView?.layer else { done(); return }
+    let local = rect.offsetBy(dx: -screenFrame.minX, dy: -screenFrame.minY)
+    let container = CALayer()
+    container.frame = host.bounds
+    // 원근의 중심은 이 카드 가운데
+    container.anchorPoint = CGPoint(x: local.midX / host.bounds.width, y: local.midY / host.bounds.height)
+    container.frame = host.bounds
+    var perspective = CATransform3DIdentity
+    perspective.m34 = -1.0 / 900
+    container.sublayerTransform = perspective
+    let h = cardHeight / CGFloat(Self.strips)
+    let inset = (rect.height - cardHeight) / 2
+    for i in 0..<Self.strips {
+      let strip = CALayer()
+      strip.contents = image
+      strip.contentsScale = scale
+      // i 번째 띠(위에서부터)의 자리만 잘라 쓴다. 단위 좌표는 아래가 0.
+      let bottom = rect.height - inset - CGFloat(i + 1) * h
+      strip.contentsRect = CGRect(x: 0, y: bottom / rect.height, width: 1, height: (h + 0.5) / rect.height)
+      strip.bounds = CGRect(x: 0, y: 0, width: rect.width, height: h + 0.5)
+      strip.isDoubleSided = false
+      strip.actions = ["position": NSNull(), "transform": NSNull(), "opacity": NSNull()]
+      container.addSublayer(strip)
+    }
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    host.addSublayer(container)
+    CATransaction.commit()
+    let roll = Roll(container: container, rect: local.insetBy(dx: 0, dy: inset), cardHeight: cardHeight,
+                    leaving: leaving, atTop: atTop, start: CACurrentMediaTime(), done: done)
+    rolls.append(roll)
+    layout(roll, p: 0)
+    panel.orderFrontRegardless()
+    if link == nil, let view = panel.contentView {
+      let l = view.displayLink(target: self, selector: #selector(tick))
+      l.add(to: .main, forMode: .common)
+      link = l
+    }
+  }
+
+  private func stage(on screenFrame: NSRect) -> NSPanel {
+    if let panel, panel.frame == screenFrame { return panel }
+    let p = panel ?? NSPanel(contentRect: screenFrame, styleMask: [.borderless, .nonactivatingPanel],
+                             backing: .buffered, defer: false)
+    p.setFrame(screenFrame, display: false)
+    p.isOpaque = false
+    p.backgroundColor = .clear
+    p.hasShadow = false
+    p.ignoresMouseEvents = true
+    p.level = .screenSaver
+    p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+    p.animationBehavior = .none
+    p.contentView?.wantsLayer = true
+    panel = p
+    return p
+  }
+
+  @objc private func tick() {
+    let now = CACurrentMediaTime()
+    var finished: [Roll] = []
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    for roll in rolls {
+      let t = min(1, (now - roll.start) / Self.duration)
+      // 양끝이 부드러운 곡선(사인 in-out)
+      layout(roll, p: CGFloat(0.5 - 0.5 * cos(t * .pi)))
+      if t >= 1 { finished.append(roll) }
+    }
+    CATransaction.commit()
+    guard !finished.isEmpty else { return }
+    rolls.removeAll { r in finished.contains { $0.container === r.container } }
+    // 진짜 카드가 먼저 서고 그다음 그림을 걷는다 — 한 프레임이라도 비지 않게.
+    for roll in finished { roll.done() }
+    DispatchQueue.main.async {
+      CATransaction.begin()
+      CATransaction.setDisableActions(true)
+      for roll in finished { roll.container.removeFromSuperlayer() }
+      CATransaction.commit()
+    }
+    if rolls.isEmpty {
+      link?.invalidate()
+      link = nil
+      DispatchQueue.main.async { [weak self] in
+        guard let self, self.rolls.isEmpty else { return }
+        self.panel?.orderOut(nil)
+      }
+    }
+  }
+
+  /// p: 0 → 1. 감겨 들어갈 때는 0 이 제자리, 풀려 나올 때는 1 이 제자리다.
+  private func layout(_ roll: Roll, p: CGFloat) {
+    guard let strips = roll.container.sublayers else { return }
+    let card = roll.rect
+    // 롤은 커야 둥글게 보인다 — 카드 높이의 65%
+    let r = min(130, card.height * 0.65)
+    let h = card.height / CGFloat(strips.count)
+    let full = card.height + r * Self.hidden
+    let travel = (roll.leaving ? p : 1 - p) * full
+    // 카드 전체도 흐려지며 감긴다 — 나가는 카드는 점점 옅어지고, 들어오는 카드는 옅게 풀려 나와 짙어진다.
+    let fade = Float(roll.leaving ? 1 - p * p : 1 - (1 - p) * (1 - p))
+    let dir: CGFloat = roll.atTop ? 1 : -1              // 롤 쪽(위 +, 아래 -)
+    let touchY = roll.atTop ? card.maxY : card.minY      // 평평한 면이 롤에 닿는 선 — 카드 가장자리
+    for (i, strip) in strips.enumerated() {
+      let fromTop = (CGFloat(i) + 0.5) * h
+      let fromEdge = roll.atTop ? fromTop : card.height - fromTop
+      let along = travel - fromEdge
+      var y: CGFloat, z: CGFloat = 0, angle: CGFloat = 0
+      if along <= 0 {
+        // 아직 평평한 부분 — 롤 쪽으로 미끄러져 간다
+        y = touchY + dir * along
+      } else {
+        // 롤에 감긴 부분 — 원을 따라 돌아 뒤로 넘어가며, 감긴 만큼 흐려진다
+        let phi = along / r
+        y = touchY + dir * r * sin(phi)
+        z = -r * (1 - cos(phi))
+        angle = -dir * phi
+      }
+      let wrap = Float(max(0, 1 - max(0, along / r) / Self.hidden))
+      strip.opacity = fade * wrap
+      strip.position = CGPoint(x: card.midX, y: y)
+      strip.transform = CATransform3DRotate(CATransform3DMakeTranslation(0, 0, z), angle, 1, 0, 0)
+    }
+  }
+}
+
 // MARK: - Manager
 
 /// Handlers the app supplies for what a card can do with the original system notification.
@@ -1511,6 +1706,7 @@ struct CardHandlers {
 /// One card per app, the stack anchored where the settings say, on the chosen display.
 final class CardManager {
   private var cards: [CardPanel] = []
+  private weak var recalled: CardPanel?
   private let handlers: CardHandlers
   private let settings = Settings.shared
 
@@ -1529,6 +1725,8 @@ final class CardManager {
   init(handlers: CardHandlers) { self.handlers = handlers }
 
   func add(_ notice: Notice) {
+    // 지난 알림을 넘겨 보는 중에 새 알림이 오면 넘겨 보기는 끝난다 — 화면에는 카드가 하나다.
+    if isRecalling { endRecall() }
     // Group only same app AND same source: a message mirrored from the iPhone is its own card, separate
     // from the same app running on this Mac. A card on its way out cannot take the notice either.
     if !notice.app.isEmpty, let existing = cards.first(where: {
@@ -1542,6 +1740,41 @@ final class CardManager {
       existing.bump()
       return
     }
+    insert(makeCard(notice))
+  }
+
+  /// 지난 알림 하나를 다시 보여준다. 다시 보기 카드는 늘 하나뿐이라, 한 칸 넘기면 앞의 것이
+  /// 물러나고 다음 것이 그 자리에 선다. 같은 앱 카드와 합치지 않는다 — 지금 온 알림이 아니다.
+  ///
+  /// 목록을 스크롤하듯 흐른다. 오래된 쪽(`older`)으로 가면 앞의 것이 위로 빠지고 새 카드가 아래에서
+  /// 올라오며, 새것 쪽으로 가면 위에서 내려온다.
+  func recall(_ notice: Notice, older: Bool) {
+    let up: CGFloat = older ? 1 : -1
+    // 넘겨 보는 동안 화면에는 카드가 하나뿐이다. 떠 있던 알림 카드도 목록의 한 장으로 보고 같은 쪽으로
+    // 밀어낸다(그 알림은 기록에서 첫 장이다). 나가는 카드가 자리를 쥐고 있으면 새 카드가 그 밑으로
+    // 밀려 섰다가 튀므로 줄에서 먼저 뺀다.
+    for old in cards where !old.isClosing {
+      cards.removeAll { $0 === old }
+      old.dismiss(slide: up * (old.cardHeight + Style.gap))
+    }
+    let card = makeCard(notice)
+    recalled = card
+    insert(card, slide: -up * (card.cardHeight + Style.gap))
+  }
+
+  /// 다시 보기 카드를 치운다. 가장 새것에서 더 새것 쪽으로 가면 위에서 내려오던 흐름 그대로 아래로 빠진다.
+  func endRecall(slide: Bool = false) {
+    if let card = recalled { card.dismiss(slide: slide ? -(card.cardHeight + Style.gap) : 0) }
+    recalled = nil
+  }
+
+  var isRecalling: Bool { recalled.map { !$0.isClosing } ?? false }
+
+
+  /// 지금 떠 있는 알림 카드들의 가장 새 알림 — 넘겨 보기를 시작할 때 목록에서 그다음 장부터 가려고.
+  var newestShown: Notice? { cards.first { !$0.isClosing }?.group.latest }
+
+  private func makeCard(_ notice: Notice) -> CardPanel {
     let card = CardPanel(group: NoticeGroup(notice))
     card.onActivate = handlers.activate
     card.onAction = handlers.action
@@ -1555,6 +1788,10 @@ final class CardManager {
     card.onResize = { [weak self] in self?.layout() }
     card.onDrag = { [weak self] dragged in self?.follow(dragged) }
     card.onDragEnd = { [weak self] dragged in self?.dragEnded(dragged) }
+    return card
+  }
+
+  private func insert(_ card: CardPanel, slide: CGFloat = 0) {
     cards.insert(card, at: 0)
     while cards.count > Style.maxGroups, let oldest = cards.last {
       cards.removeLast()
@@ -1564,7 +1801,7 @@ final class CardManager {
     for (c, f) in zip(cards, frames) where c !== card { c.move(to: f) }
     // With no display there are no frames; the card opens where it stands and the next layout,
     // once a screen is back, walks it to its place.
-    card.present(at: frames.first ?? .zero)
+    card.present(at: frames.first ?? .zero, slide: slide)
   }
 
   func dismissAll() {

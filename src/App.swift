@@ -9,7 +9,8 @@ struct Main {
     let app = NSApplication.shared
     let delegate = AppDelegate()
     app.delegate = delegate
-    app.setActivationPolicy(.accessory)
+    // 독과 ⌘Tab 에 서는 보통 앱이다. 카드는 활성화하지 않는 판이라 떠도 다른 앱의 초점을 뺏지 않는다.
+    app.setActivationPolicy(.regular)
     app.run()
   }
 }
@@ -70,6 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
       }
     }))
+  private lazy var history = HistoryWheel(cards: cards)
   private var statusItem: NSStatusItem?
   private lazy var settingsActions = SettingsActions(
     sendTest: { [weak self] in self?.sendTest() },
@@ -107,6 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     Settings.shared.onMenuBarChange = { [weak self] in self?.applyMenuBarVisibility() }
     Settings.shared.onLanguageChange = { [weak self] in self?.languageChanged() }
     Settings.shared.onChange = { [weak self] in self?.cards.layout() }
+    Settings.shared.onRecallWheelChange = { [weak self] in self?.history.apply() }
     Settings.shared.onSizeChange = { [weak self] in self?.cards.dismissAll() }
     NotificationCenter.default.addObserver(self, selector: #selector(screensChanged),
                                            name: NSApplication.didChangeScreenParametersNotification, object: nil)
@@ -170,6 +173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
     if AXIsProcessTrustedWithOptions(options) {
       _ = watcher.start()
+      history.apply()
       return
     }
     logI("waiting for Accessibility permission")
@@ -179,6 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       self?.trustTimer = nil
       logI("Accessibility granted")
       _ = self?.watcher.start()
+      self?.history.apply()
     }
   }
 
@@ -214,6 +219,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       return
     }
     seen[notice.key] = now
+    // 아이폰 앱 이름은 이 배너에서만 알 수 있다 — 지난 알림 기록에 붙일 이름으로 적어 둔다.
+    IPhoneApps.saw(notice)
     logI("show via \(route): \(notice.app) / \(notice.title)")
     let sound = Settings.shared.sound
     if !sound.isEmpty { NSSound(named: sound)?.play() }
@@ -231,12 +238,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     statusItem = item
   }
 
+  /// 설정 · 위치 아홉 곳(지금 자리에 체크) · 종료. 위치는 설정 창을 열지 않고 여기서 바로 바꾼다.
   private func statusMenu() -> NSMenu {
     let menu = NSMenu()
-    menu.addItem(withTitle: T("설정…"), action: #selector(openSettings), keyEquivalent: ",")
-    menu.addItem(withTitle: T("닫기"), action: #selector(quit), keyEquivalent: "q")
-    for m in menu.items { m.target = self }
+    menu.delegate = self
+    menu.addItem(withTitle: T("설정…"), action: #selector(openSettings), keyEquivalent: ",").target = self
+    menu.addItem(.separator())
+    for anchor in Anchor.allCases {
+      let item = menu.addItem(withTitle: anchor.label, action: #selector(anchorPicked(_:)), keyEquivalent: "")
+      item.target = self
+      item.representedObject = anchor.rawValue
+      item.image = NSImage(systemSymbolName: anchor.symbol, accessibilityDescription: anchor.label)
+    }
+    menu.addItem(.separator())
+    menu.addItem(withTitle: T("Pounce 종료"), action: #selector(quit), keyEquivalent: "q").target = self
     return menu
+  }
+
+  @objc private func anchorPicked(_ sender: NSMenuItem) {
+    guard let raw = sender.representedObject as? String, let anchor = Anchor(rawValue: raw) else { return }
+    Settings.shared.anchor = anchor
+    // 설정 창이 떠 있으면 그 격자도 따라온다.
+    settingsWindowStore?.refresh()
   }
 
   /// Everything visible was written in the old language, so the menus and the settings window are
@@ -459,17 +482,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     statusItem?.isVisible = !Settings.shared.menuBarHidden
   }
 
-  /// Launching the app while it already runs (Launchpad, Spotlight, `open -a`) lands here: the way back
-  /// to Settings when the paw is hidden.
+  /// Launching the app while it already runs (Launchpad, Spotlight, `open -a`) or clicking it in the Dock
+  /// lands here: the way back to Settings when the paw is hidden.
   func applicationShouldHandleReopen(_: NSApplication, hasVisibleWindows: Bool) -> Bool {
     settingsWindow.show()
     return false
   }
 
-  /// No visible menu bar of its own (LSUIElement), but ⌘Q and ⌘W still work while the settings window is up.
+  /// ⌘Tab 으로 넘어왔는데 띄운 창이 없으면 설정 창을 연다 — 앞으로 가져온 앱이 아무것도 보여주지 않으면
+  /// 넘어간 줄 모른다. 카드는 활성화하지 않는 판이라 카드를 눌러서는 여기 오지 않는다.
+  func applicationDidBecomeActive(_: Notification) {
+    guard !NSApp.windows.contains(where: { $0.isVisible && !($0 is NSPanel) }) else { return }
+    settingsWindow.show()
+  }
+
+  /// 앱 메뉴 — 설정(⌘,)·종료(⌘Q), 창 메뉴 — 닫기(⌘W).
   private func installMainMenu() {
     let app = NSMenuItem()
     app.submenu = NSMenu()
+    app.submenu?.addItem(withTitle: T("설정…"), action: #selector(openSettings), keyEquivalent: ",").target = self
+    app.submenu?.addItem(.separator())
     app.submenu?.addItem(withTitle: T("Pounce 종료"), action: #selector(quit), keyEquivalent: "q").target = self
     let window = NSMenuItem()
     window.submenu = NSMenu()
@@ -481,7 +513,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension AppDelegate: UNUserNotificationCenterDelegate {
-  /// Draw our own notifications as banners even though we run as an accessory, so the watcher can park them.
+  /// Draw our own notifications as banners even while Pounce is the frontmost app, so the watcher can park them.
   func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                               withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
     completionHandler([.banner, .list])
@@ -496,5 +528,15 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
       logI("test action: \(response.actionIdentifier)")
     }
     completionHandler()
+  }
+}
+
+extension AppDelegate: NSMenuDelegate {
+  /// 열 때마다 지금 위치에 체크를 옮긴다 — 설정 창이나 끌어서 바꾼 것도 반영된다.
+  func menuNeedsUpdate(_ menu: NSMenu) {
+    let current = Settings.shared.anchor.rawValue
+    for item in menu.items where item.representedObject is String {
+      item.state = item.representedObject as? String == current ? .on : .off
+    }
   }
 }

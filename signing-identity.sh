@@ -8,7 +8,7 @@ team=${1:-VXR4D4G8N4}
 while IFS= read -r line; do
   hash=${line%% *}; cn=${line#* }
   ou=$(security find-certificate -c "$cn" -p 2>/dev/null |
-       openssl x509 -noout -subject 2>/dev/null | tr ',' '\n' | sed -n 's/^ *OU=//p' | head -1)
+       openssl x509 -noout -subject -nameopt RFC2253 2>/dev/null | tr ',' '\n' | sed -n 's/^ *OU=//p' | head -1)
   if [[ "$ou" == "$team" ]]; then printf '%s' "$hash"; exit 0; fi
 done < <(security find-identity -v -p codesigning 2>/dev/null |
          sed -n 's/^ *[0-9]*) \([A-F0-9]*\) "\(.*\)"$/\1 \2/p')

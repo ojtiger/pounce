@@ -270,13 +270,15 @@ struct AXAction {
   /// The card shows that text from the start, so the button has nothing left to do.
   var isExpand: Bool { Self.expand.contains(key) }
 
-  /// Brings the app forward and nothing more. A click on the card already does exactly that.
-  var isOpenApp: Bool { Self.openApp.contains(key) }
+  /// Notification Center's own buttons, which the card already does itself. Everything else the
+  /// app put there is drawn under its own name, however the app chose to word it.
+  var isSystem: Bool { isClose || isExpand }
 
   /// Buttons are handed over as "Name:답장\nTarget:0x0\nSelector:(null)" whatever they do, so what
-  /// a button is can only be read from what it is called. The names come in the system's language
-  /// for the first two lists and in each app's own for the third, so both are covered for every
-  /// language Pounce speaks. A name no list has seen is caught the slow way, by watching a press.
+  /// a button is can only be read from what it is called. Only these two are told apart: the system
+  /// adds them and names them in its own language, so the names hold. The app's own buttons are
+  /// named however each app likes (cmux says 보여주다 for Show), and guessing at those is a list that
+  /// never ends, so they are all drawn as given.
   private static let close: Set<String> = [
     "닫기", "지우기",
     "close", "dismiss", "clear",
@@ -304,21 +306,6 @@ struct AXAction {
     "ayrıntıları göster", "xem chi tiết", "tampilkan detail",
   ]
 
-  private static let openApp: Set<String> = [
-    "보기", "열기", "이동",
-    "show", "open", "view", "reveal", "launch", "go", "show me",
-    "表示", "開く", "查看", "打开", "檢視", "開啟",
-    "ver", "abrir", "mostrar",
-    "voir", "ouvrir", "afficher",
-    "anzeigen", "öffnen", "ansehen",
-    "mostra", "apri", "vedi",
-    "показать", "открыть", "перейти",
-    "bekijken", "openen", "tonen",
-    "pokaż", "otwórz", "zobacz",
-    "göster", "aç", "git",
-    "xem", "mở", "chuyển đến",
-    "lihat", "buka",
-  ]
 }
 
 /// Strips default-ignorable scalars (some apps embed U+200E) and trims spaces.

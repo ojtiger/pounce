@@ -577,11 +577,12 @@ final class CardPanel: NSPanel {
     body.isSelectable = false
     body.isHidden = notice.body.isEmpty
 
-    // The banner's own buttons, minus its close action: the X in the corner already is that.
+    // The banner's own buttons, minus the system's close and expand: the X in the corner and the
+    // unfolded body already are those.
     // Pressing one hands the press back to the real banner, which is where the system draws
     // whatever the button opens (a reply field, a menu).
     buttonActions = isLive(notice)
-      ? Array(notice.actions.filter { !$0.isClose && !$0.isExpand && !$0.isOpenApp }.prefix(3))
+      ? Array(notice.actions.filter { !$0.isSystem }.prefix(3))
       : []
     let text = NSStackView(views: [header, title, subtitle, body])
     text.orientation = .vertical
@@ -770,7 +771,7 @@ final class CardPanel: NSPanel {
     // banner is gone would do nothing.
     var views: [NSView] = [mark, label]
     if isLive(n) {
-      let live = n.actions.filter { !$0.isClose && !$0.isExpand && !$0.isOpenApp }.prefix(2)
+      let live = n.actions.filter { !$0.isSystem }.prefix(2)
       if !live.isEmpty {
         let spacer = NSView()
         spacer.translatesAutoresizingMaskIntoConstraints = false

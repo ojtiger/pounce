@@ -13,8 +13,8 @@ struct Notice {
   /// Notification UUID when known.
   let uuid: String
   let icon: NSImage?
-  /// Buttons the system banner offers (보기, 답장, 닫기 …). Ones known not to work are dropped
-  /// before the card is built.
+  /// Buttons the system banner offers (보기, 답장, 닫기 …), all of them. The card leaves out the
+  /// system's own close and expand when it draws.
   var actions: [AXAction]
   /// The banner carried a picture. Accessibility gives its size and nothing else — no pixels, no
   /// file — so the card can only say that one is there.
